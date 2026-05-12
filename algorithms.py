@@ -517,7 +517,6 @@ def distribute_quantity(total_quantity, num_segments):
             equal_allocation = [base + (1 if i < remainder else 0) for i in range(num_segments)]
             if allocation != equal_allocation:
                 yield allocation
-                yield allocation
     
     # 方案3: 将一些箱从第一段移到其他段（渐进式调整）
     if total_quantity >= num_segments * 2:
