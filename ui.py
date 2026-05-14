@@ -32,22 +32,12 @@ def display_solution_summary(solution, container_type):
 
         # 显示相邻段高度差
         max_adjacent_diff = solution.get("max_adjacent_height_diff", 0)
-        heights = [segment["height"] for segment in sorted(solution["segments"], key=lambda x: x["position"])]
 
-        from algorithms import check_adjacent_height_constraint, check_staircase_constraint
-
-        is_ideal = check_adjacent_height_constraint({i: h for i, h in enumerate(heights)})
-        is_staircase = check_staircase_constraint({i: h for i, h in enumerate(heights)})
-
-        if is_ideal:
-            status = "✓ 理想（≤3cm）"
-            color = "normal"
-        elif is_staircase:
-            status = "✓ 台阶式（≤10cm）"
-            color = "off"
+        # 检查是否满足硬约束（≤50cm）
+        if max_adjacent_diff <= 50:
+            status = "✓ 满足硬约束"
         else:
-            status = "✗ 超出限制"
-            color = "inverse"
+            status = "✗ 超出硬约束"
 
         st.metric("相邻段高度差", f"{max_adjacent_diff:.1f} cm", delta=status)
     

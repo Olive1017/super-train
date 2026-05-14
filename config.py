@@ -26,3 +26,19 @@ COLORS = {
 
 # 位置映射
 POSITIONS_MAP = {0: "前段", 1: "中段", 2: "后段"}
+
+# 层数限制（独立装整段时的最大层数）
+LAYER_LIMITS = {
+    "5L": {"independent": 7},
+    "2L": {"independent": 8},
+    "艾考": {"independent": 6}
+}
+
+# 垂直混合装载配置
+VERTICAL_MIXING_CONFIG = {
+    "enabled": True,
+    "main_product": "5L",
+    "max_bottom_layers": 2,
+    "min_top_layers": 3,
+    "max_top_layers": 7
+}

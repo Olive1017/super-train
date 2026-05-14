@@ -7,100 +7,162 @@
 import numpy as np
 import itertools
 import math
-from config import PRODUCTS, CONTAINERS
+from config import PRODUCTS, CONTAINERS, LAYER_LIMITS, VERTICAL_MIXING_CONFIG
 
 
-def check_adjacent_height_constraint(heights):
+def calculate_top_layer_filled_score(segments):
     """
-    检查相邻段高度差是否≤3cm（理想约束）
+    计算顶层铺满度评分
 
     参数:
-        heights: 字典 {position: height}
+        segments: 段信息列表
 
     返回:
-        bool: 是否满足约束
+        score: 顶层铺满度评分
     """
-    # 按位置排序
-    sorted_heights = [heights[pos] for pos in sorted(heights.keys())]
+    score = 0
 
-    # 检查相邻段高度差
-    for i in range(len(sorted_heights) - 1):
-        if abs(sorted_heights[i] - sorted_heights[i + 1]) > 3:
-            return False
+    for seg in segments:
+        # 判断是否为垂直混合段
+        if "segment_details" in seg and seg["segment_details"]:
+            # 垂直混合段：找到最上层有箱子的层
+            top_layer = None
+            for detail in seg["segment_details"]:
+                if detail["total_boxes"] > 0:
+                    top_layer = detail
+            # 找最顶层的非空层（layer_index最大）
+            for detail in reversed(seg["segment_details"]):
+                if detail["total_boxes"] > 0:
+                    top_layer = detail
+                    break
 
-    return True
+            if top_layer is None or top_layer["total_boxes"] == 0:
+                continue
 
+            # 计算该层的铺满度
+            layer_name = top_layer["product_name"]
+            rows = top_layer["rows"]
+            cols = top_layer["cols"]
 
-def check_staircase_constraint(heights, max_diff=10):
-    """
-    检查台阶式约束：相邻高度差≤10cm，且必须单调递减（从前往后）
+            # 计算该层的最大容量（该产品在一层的最大箱子数）
+            product = PRODUCTS[layer_name]
+            box_l, box_w = product["length"], product["width"]
+            max_rows = math.floor(seg["width"] / box_w)
+            max_cols = math.floor(seg["width"] / box_l)
+            max_boxes = max_rows * max_cols
 
-    参数:
-        heights: 字典 {position: height}
-        max_diff: 最大允许高度差（cm）
+            if max_boxes == 0:
+                continue
 
-    返回:
-        bool: 是否满足台阶式约束
-    """
-    # 按位置排序（前→后）
-    sorted_heights = [heights[pos] for pos in sorted(heights.keys())]
+            # 计算铺满度
+            filled_ratio = min(1.0, (rows * cols) / max_boxes)
 
-    # 检查单调递减（从前往后，位置0是前段）
-    for i in range(len(sorted_heights) - 1):
-        if sorted_heights[i] < sorted_heights[i + 1]:
-            return False
+            # 根据铺满度给分
+            if filled_ratio >= 0.9:
+                score += 50
+            elif filled_ratio >= 0.8:
+                score += 30
+        else:
+            # 非垂直混合段：直接使用段的信息
+            if seg["total_boxes"] == 0:
+                continue
 
-    # 检查高度差
-    for i in range(len(sorted_heights) - 1):
-        if abs(sorted_heights[i] - sorted_heights[i + 1]) > max_diff:
-            return False
+            product_name = seg["name"]
+            rows = seg["rows"]
+            cols = seg["cols"]
 
-    return True
+            # 计算该产品在一层的最大箱子数
+            product = PRODUCTS[product_name]
+            box_l, box_w = product["length"], product["width"]
+            max_rows = math.floor(seg["width"] / box_w)
+            max_cols = math.floor(seg["width"] / box_l)
+            max_boxes = max_rows * max_cols
+
+            if max_boxes == 0:
+                continue
+
+            # 计算铺满度
+            filled_ratio = min(1.0, (rows * cols) / max_boxes)
+
+            # 根据铺满度给分
+            if filled_ratio >= 0.9:
+                score += 50
+            elif filled_ratio >= 0.8:
+                score += 30
+
+    return score
 
 
 def calculate_weight_center(segments, container_length):
     """
-    计算重量中心位置
-    
+    计算重量中心位置（支持垂直混合）
+
     参数:
         segments: 段信息列表
         container_length: 柜子总长度
-    
+
     返回:
         weight_center: 重量中心距前端的距离
         deviation: 与柜子中点的偏差（越小越好）
     """
     total_weight = 0
     total_moment = 0
-    
+
     for seg in segments:
-        name = seg["name"]
-        boxes = seg["total_boxes"]
-        weight_per_box = PRODUCTS[name]["weight"]
         segment_length = seg["actual_length"]
-        
+
         # 段的起始位置
         start_pos = 0
         for other in segments:
             if other["position"] < seg["position"]:
                 start_pos += other["actual_length"]
-        
+
         # 段的重心位置（段中心）
         segment_center = start_pos + segment_length / 2
-        
-        # 该段的总重量
-        segment_weight = boxes * weight_per_box
-        
+
+        # 判断是否为垂直混合段
+        if "layers_config" in seg and len(seg["layers_config"]) > 1:
+            # 垂直混合段：计算每层的重量
+            segment_weight = 0
+            for layer_idx, layer_name, layers in seg["layers_config"]:
+                # 找到对应的segment_details
+                layer_details = None
+                if "segment_details" in seg:
+                    for sd in seg["segment_details"]:
+                        if sd["layer_index"] == layer_idx:
+                            layer_details = sd
+                            break
+
+                if layer_details:
+                    boxes = layer_details["total_boxes"]
+                    weight_per_box = PRODUCTS[layer_name]["weight"]
+                    segment_weight += boxes * weight_per_box
+                else:
+                    # 如果没有details，按seg["total_boxes"]分配
+                    # 这是一个简化处理
+                    weight_per_box = PRODUCTS[layer_name]["weight"]
+                    # 按层数比例分配箱子
+                    total_layers = sum(l for _, _, l in seg["layers_config"])
+                    proportion = layers / total_layers if total_layers > 0 else 0
+                    boxes = int(seg["total_boxes"] * proportion)
+                    segment_weight += boxes * weight_per_box
+        else:
+            # 非垂直混合段：直接计算
+            name = seg["name"]
+            boxes = seg["total_boxes"]
+            weight_per_box = PRODUCTS[name]["weight"]
+            segment_weight = boxes * weight_per_box
+
         total_weight += segment_weight
         total_moment += segment_weight * segment_center
-    
+
     if total_weight == 0:
         return 0, container_length / 2
-    
+
     weight_center = total_moment / total_weight
     container_center = container_length / 2
     deviation = abs(weight_center - container_center)
-    
+
     return weight_center, deviation
 
 
@@ -133,23 +195,14 @@ def calculate_loading_plan(container_type, product_quantities):
     if n_products == 1:
         permutations = [product_names]
     elif n_products == 2:
-        # 2种货品：可以选择分成2段或3段
+        # 2种货品：只分2段或同种货品分成两段（不再允许空段）
         perms = []
-        
+
         # 方案1：只分2段
         for perm in itertools.permutations(product_names):
-            perms.append(list(perm))  # 2段布局
-        
-        # 方案2：分3段（其中一段为空）
-        positions = itertools.combinations(range(3), 2)  # 选择2个位置
-        for pos in positions:
-            for perm in itertools.permutations(product_names):
-                layout = [None, None, None]
-                layout[pos[0]] = perm[0]
-                layout[pos[1]] = perm[1]
-                perms.append(layout)
-        
-        # 方案3：同种货品分成两段（[A, B, B] 或 [A, A, B]）
+            perms.append(list(perm))
+
+        # 方案2：同种货品分成两段（[A, B, B] 或 [A, A, B]）
         for perm in itertools.permutations(product_names):
             # [A, B, B]
             layout1 = [perm[0], perm[1], perm[1]]
@@ -157,7 +210,7 @@ def calculate_loading_plan(container_type, product_quantities):
             # [A, A, B]
             layout2 = [perm[0], perm[0], perm[1]]
             perms.append(layout2)
-        
+
         permutations = perms
     else:  # n_products == 3
         permutations = list(itertools.permutations(product_names))
@@ -208,99 +261,77 @@ def find_optimal_allocation(layout, product_quantities, container):
     
     # 确定有货品的段
     occupied_positions = [(i, name) for i, name in enumerate(layout) if name is not None]
-    
+
     best_allocation = None
     best_score = -float('inf')
-    
-    # 尝试不同的层数组合（带剪枝优化）
-    layers_ranges = []
-    for pos, name in occupied_positions:
-        max_height = total_height
-        product = PRODUCTS[name]
-        max_layers = int(max_height / product["height"])
-        layers_ranges.append(range(1, max_layers + 1))
-    
-    # 生成层数组合，但先进行剪枝
-    # 策略1: 按层数排序，优先检查层数较小的组合
-    # 策略2: 限制最大总层数，避免搜索空间爆炸
-    all_layers_combinations = []
-    max_total_layers_threshold = 15  # 限制最大总层数，避免计算爆炸
-    
-    # 生成所有组合并按总层数排序（优先检查层数少的组合）
-    temp_combinations = list(itertools.product(*layers_ranges))
-    temp_combinations.sort(key=lambda x: sum(x))  # 按总层数升序排序
-    
-    for layers_combo in temp_combinations:
-        total_layers = sum(layers_combo)
-        
-        # 剪枝1: 总层数超过阈值时跳过
-        if total_layers > max_total_layers_threshold:
-            continue
-        
-        # 剪枝2: 计算各段高度，检查相邻段高度差是否合理
-        heights = {}
-        for i, (pos, name) in enumerate(occupied_positions):
-            layers = layers_combo[i]
-            heights[pos] = PRODUCTS[name]["height"] * layers
-        
-        # 剪枝3: 如果相邻段高度差过大，直接跳过
-        sorted_heights = [heights[pos] for pos in sorted(heights.keys())]
-        max_adjacent_diff = 0
-        for i in range(len(sorted_heights) - 1):
-            diff = abs(sorted_heights[i] - sorted_heights[i + 1])
-            max_adjacent_diff = max(max_adjacent_diff, diff)
-        
-        # 如果最大高度差超过100cm，认为不太合理，跳过
-        if max_adjacent_diff > 100:
-            continue
-        
-        all_layers_combinations.append(layers_combo)
 
-    for layers_combo in all_layers_combinations:
-        # 计算每个段的高度
+    # 生成层数组合（支持垂直混合）
+    all_layers_combinations = []
+    for layers_config in generate_layers_combinations_v3(occupied_positions, total_height, product_quantities):
+        all_layers_combinations.append(layers_config)
+
+    for layers_config in all_layers_combinations:
+        # 计算每个段的高度和层配置
         heights = {}
-        for i, (pos, name) in enumerate(occupied_positions):
-            layers = layers_combo[i]
-            heights[pos] = PRODUCTS[name]["height"] * layers
+        segment_layer_configs = {}
+        for pos, layer_list in layers_config:
+            segment_height = 0
+            for layer_idx, layer_name, layers in layer_list:
+                segment_height += PRODUCTS[layer_name]["height"] * layers
+            heights[pos] = segment_height
+            segment_layer_configs[pos] = layer_list
 
         # 恢复高度差约束为硬约束（基于实际操作需求）
-        # 理想约束：相邻高度差≤3cm
-        is_ideal = check_adjacent_height_constraint(heights)
-        # 台阶式约束：相邻高度差≤10cm且单调递减
-        is_staircase = check_staircase_constraint(heights)
-        
         # 计算相邻段的最大高度差
         sorted_heights = [heights[pos] for pos in sorted(heights.keys())]
         max_adjacent_diff = 0
         for i in range(len(sorted_heights) - 1):
             diff = abs(sorted_heights[i] - sorted_heights[i + 1])
             max_adjacent_diff = max(max_adjacent_diff, diff)
-        
+
         # 硬约束：相邻高度差不能超过50cm（考虑实际操作和安全性）
         MAX_HEIGHT_DIFF = 50  # cm，基于实际操作需求和运输安全
         if max_adjacent_diff > MAX_HEIGHT_DIFF:
             continue  # 高度差过大，直接跳过该方案
 
-        # 按需分配：计算每种货品需要的最小长度
-        # 支持同种货品分成多段的情况
+        # 按需分配：计算每种货品需要的最小长度（支持垂直混合）
+        # 支持同种货品分成多段的情况，以及垂直混合
         segments = []
         total_actual_length = 0
-        
+
         # 收集每种货品在哪些位置
         product_positions = {}
         for pos, name in occupied_positions:
             if name not in product_positions:
                 product_positions[name] = []
             product_positions[name].append(pos)
-        
+
+        # 识别哪些段启用了垂直混合
+        vertical_mixed_segments = {}
+        for pos, layer_list in segment_layer_configs.items():
+            if len(layer_list) > 1:  # 多层配置 = 垂直混合
+                vertical_mixed_segments[pos] = layer_list
+
         # 对每种货品进行分配
+        remaining_quantities = product_quantities.copy()  # 剩余需求数量
+
+        # 先分配纯段（非垂直混合的段）
         for name, positions in product_positions.items():
-            total_quantity = product_quantities[name]
-            num_segments = len(positions)
+            # 过滤出纯段
+            pure_positions = [pos for pos in positions if pos not in vertical_mixed_segments]
+
+            if not pure_positions:
+                continue
+
+            total_quantity = remaining_quantities[name]
+            num_segments = len(pure_positions)
+
+            if total_quantity <= 0:
+                continue
 
             if num_segments == 1:
                 # 只有一段，全部装入
-                pos = positions[0]
+                pos = pure_positions[0]
                 segment_height = heights[pos]
 
                 boxes_info = calculate_compact_layout(
@@ -322,8 +353,10 @@ def find_optimal_allocation(layout, product_quantities, container):
                     "cols": boxes_info["cols"],
                     "total_boxes": boxes_info["total_boxes"],
                     "direction": boxes_info["direction"],
+                    "layers_config": [(0, name, int(segment_height / PRODUCTS[name]["height"]))]
                 })
                 total_actual_length += boxes_info["actual_length"]
+                remaining_quantities[name] = total_quantity - boxes_info["total_boxes"]
             else:
                 # 多段，尝试多种分配比例
                 best_multi_segment_allocation = None
@@ -335,7 +368,7 @@ def find_optimal_allocation(layout, product_quantities, container):
                     temp_segments = []
                     temp_length = 0
 
-                    for i, pos in enumerate(positions):
+                    for i, pos in enumerate(pure_positions):
                         segment_height = heights[pos]
                         quantity = allocation[i]
 
@@ -358,6 +391,7 @@ def find_optimal_allocation(layout, product_quantities, container):
                             "cols": boxes_info["cols"],
                             "total_boxes": boxes_info["total_boxes"],
                             "direction": boxes_info["direction"],
+                            "layers_config": [(0, name, int(segment_height / PRODUCTS[name]["height"]))]
                         })
                         temp_length += boxes_info["actual_length"]
 
@@ -370,6 +404,94 @@ def find_optimal_allocation(layout, product_quantities, container):
 
                 segments.extend(best_multi_segment_allocation)
                 total_actual_length += best_multi_segment_length
+                remaining_quantities[name] = 0  # 假设全部装完
+
+        # 再分配垂直混合段
+        for pos, layer_list in vertical_mixed_segments.items():
+            segment_height = heights[pos]
+            segment_length = 0
+            segment_boxes = 0
+            segment_details = []
+
+            # 为每一层分配箱数
+            for layer_idx, layer_name, layers in layer_list:
+                layer_height = PRODUCTS[layer_name]["height"] * layers
+                layer_quantity = remaining_quantities.get(layer_name, 0)
+
+                if layer_quantity <= 0:
+                    # 没有需求，但保留空层占位
+                    segment_details.append({
+                        "layer_index": layer_idx,
+                        "product_name": layer_name,
+                        "layers": layers,
+                        "height": layer_height,
+                        "rows": 0,
+                        "cols": 0,
+                        "total_boxes": 0,
+                        "direction": "无",
+                        "actual_length": 0
+                    })
+                    continue
+
+                # 计算该层能装的箱数
+                max_boxes_per_layer = (container_width / PRODUCTS[layer_name]["width"]) * (container_width / PRODUCTS[layer_name]["length"])  # 粗略估计
+                max_boxes = max_boxes_per_layer * layers
+
+                # 按需求分配
+                boxes_to_load = min(layer_quantity, max_boxes)
+
+                if boxes_to_load <= 0:
+                    segment_details.append({
+                        "layer_index": layer_idx,
+                        "product_name": layer_name,
+                        "layers": layers,
+                        "height": layer_height,
+                        "rows": 0,
+                        "cols": 0,
+                        "total_boxes": 0,
+                        "direction": "无",
+                        "actual_length": 0
+                    })
+                    continue
+
+                # 计算该层的布局
+                boxes_info = calculate_compact_layout(
+                    boxes_to_load, container_width, layer_height, layer_name
+                )
+
+                segment_length = max(segment_length, boxes_info["actual_length"])  # 取最大长度
+                segment_boxes += boxes_info["total_boxes"]
+                remaining_quantities[layer_name] = layer_quantity - boxes_info["total_boxes"]
+
+                segment_details.append({
+                    "layer_index": layer_idx,
+                    "product_name": layer_name,
+                    "layers": layers,
+                    "height": layer_height,
+                    "rows": boxes_info["rows"],
+                    "cols": boxes_info["cols"],
+                    "total_boxes": boxes_info["total_boxes"],
+                    "direction": boxes_info["direction"],
+                    "actual_length": boxes_info["actual_length"]
+                })
+
+            # 创建垂直混合段
+            main_product_name = layer_list[0][1]  # 取第一层的名称（应该是主产品）
+            segments.append({
+                "position": pos,
+                "name": main_product_name,
+                "actual_length": segment_length,
+                "width": container_width,
+                "height": segment_height,
+                "layers": sum(layers for _, _, layers in layer_list),
+                "rows": max((sd["rows"] for sd in segment_details), default=0),
+                "cols": max((sd["cols"] for sd in segment_details), default=0),
+                "total_boxes": segment_boxes,
+                "direction": "垂直混合",
+                "layers_config": layer_list,
+                "segment_details": segment_details
+            })
+            total_actual_length += segment_length
         
         # 所有段都能放下，检查总长度
         if total_actual_length <= total_length:
@@ -378,8 +500,11 @@ def find_optimal_allocation(layout, product_quantities, container):
             # 计算重量中心偏差
             weight_center, weight_deviation = calculate_weight_center(segments, total_length)
 
+            # 计算顶层铺满度评分
+            top_layer_score = calculate_top_layer_filled_score(segments)
+
             # 计算总分（装载数量优先，空间利用率次之）
-            score = loaded_count * 500
+            score = loaded_count * 1000
             score += (total_actual_length / total_length) * 50  # 奖励空间利用率
 
             # 检查是否装下了所有货品
@@ -388,40 +513,24 @@ def find_optimal_allocation(layout, product_quantities, container):
                 # 未装下所有箱子，大幅降低分数
                 # 这样如果没有方案能装下800箱，至少会返回装得最多的方案
                 missing = total_required - loaded_count
-                score -= missing * 1000  # 大幅扣分，但仍保留参与比较的机会
+                score -= missing * 2000  # 大幅扣分，但仍保留参与比较的机会
                 # 添加调试信息
                 if best_allocation is None or loaded_count > best_allocation.get('total_loaded', 0):
                     pass  # 这是目前找到的最多箱子数量
 
-            # 高度一致性评分（优化后的约束）
-            adjacent_diffs = []
-            sorted_heights = [heights[pos] for pos in sorted(heights.keys())]
-            for i in range(len(sorted_heights) - 1):
-                adjacent_diffs.append(abs(sorted_heights[i] - sorted_heights[i + 1]))
-            max_adjacent_diff = max(adjacent_diffs) if adjacent_diffs else 0
-
-            is_ideal = check_adjacent_height_constraint(heights)
-            is_staircase = check_staircase_constraint(heights)
-
-            # 高度差评分优化：理想约束优先，台阶式次之，其他根据高度差惩罚
-            if is_ideal:
-                score += 15  # 奖励满足3cm理想约束（便于防水布铺设）
-            elif is_staircase:
-                score += 5  # 奖励台阶式布局（符合某些装卸需求）
+            # 重量中心评分优化：偏差越小越好
+            # 偏差≤10cm时给予额外奖励
+            if weight_deviation <= 10:
+                score += 200  # 重心偏差小，大幅奖励
             else:
-                # 根据高度差进行惩罚（在50cm范围内）
-                # 高度差越小，惩罚越小；高度差越大，惩罚越大
-                if max_adjacent_diff <= 10:
-                    score -= 2  # 高度差≤10cm，轻微惩罚
-                elif max_adjacent_diff <= 20:
-                    score -= 5  # 高度差≤20cm，小惩罚
-                elif max_adjacent_diff <= 30:
-                    score -= 10  # 高度差≤30cm，中惩罚
-                else:
-                    score -= 20  # 高度差≤50cm，较大惩罚
+                score -= weight_deviation * 20  # 偏差越大，扣分越多
 
-            # 提高重心权重（从2改为20）
-            score -= weight_deviation * 20
+            # 奖励5L在中间段（轻的放中间，重的放两侧）
+            if layout[1] == "5L":
+                score += 150  # 5L在中间段，额外奖励
+
+            # 奖励顶层铺满（每段铺满度>=90%奖励50分，>=80%奖励30分）
+            score += top_layer_score
 
             allocation = {
                 "layout": list(layout),
@@ -446,6 +555,152 @@ def find_optimal_allocation(layout, product_quantities, container):
         print(f"[DEBUG] 布局 {layout_str} 未找到可行方案")
 
     return best_allocation
+
+
+def generate_layers_combinations_v3(occupied_positions, container_height, product_quantities):
+    """
+    生成垂直混合的层数组合
+    支持每段有多层不同货品的垂直堆叠
+
+    参数:
+        occupied_positions: [(position, product_name), ...]
+        container_height: 柜子内高
+        product_quantities: 各货品需求数量
+
+    返回:
+        生成器，产生各种层数组合
+        每个组合格式：[(position, [(layer_index, product_name, layers), ...]), ...]
+    """
+    from config import LAYER_LIMITS, VERTICAL_MIXING_CONFIG
+
+    # 如果没有启用垂直混合，使用原有逻辑
+    if not VERTICAL_MIXING_CONFIG["enabled"]:
+        for combo in itertools.product(
+            *[
+                range(1, int(container_height / PRODUCTS[name]["height"]) + 1)
+                for _, name in occupied_positions
+            ]
+        ):
+            yield [(pos, [(0, name, combo[i])]) for i, (pos, name) in enumerate(occupied_positions)]
+        return
+
+    # 启用垂直混合：支持5L段下层放其他货品
+    main_product = VERTICAL_MIXING_CONFIG["main_product"]  # 通常是"5L"
+    max_bottom_layers = VERTICAL_MIXING_CONFIG["max_bottom_layers"]  # 最多2层
+    min_top_layers = VERTICAL_MIXING_CONFIG["min_top_layers"]  # 至少3层
+    max_top_layers = VERTICAL_MIXING_CONFIG["max_top_layers"]  # 最多7层
+
+    # 确定哪些产品可以作为下层垫底
+    bottom_candidates = [name for name in product_quantities.keys() if name != main_product]
+
+    # 为每个位置生成可能的垂直堆叠配置
+    position_configs = []
+
+    for pos, name in occupied_positions:
+        configs = []
+
+        if name == main_product and bottom_candidates:
+            # 主产品段，可以尝试垂直混合
+            # 方案1：纯主产品（独立装整段）
+            max_independent = LAYER_LIMITS[main_product]["independent"]
+            for layers in range(min_top_layers, min(max_independent + 1, int(container_height / PRODUCTS[main_product]["height"]) + 1)):
+                configs.append([(0, main_product, layers)])
+
+            # 方案2：垂直混合（下层放其他货品，上层放主产品）
+            for bottom_name in bottom_candidates:
+                if product_quantities[bottom_name] > 0:
+                    # 下层1层
+                    bottom_height = PRODUCTS[bottom_name]["height"]
+                    remaining_height = container_height - bottom_height
+                    max_top = min(max_top_layers, int(remaining_height / PRODUCTS[main_product]["height"]))
+
+                    for top_layers in range(min_top_layers, max_top + 1):
+                        configs.append([(0, bottom_name, 1), (1, main_product, top_layers)])
+
+                    # 下层2层
+                    if max_bottom_layers >= 2:
+                        bottom_height = PRODUCTS[bottom_name]["height"] * 2
+                        remaining_height = container_height - bottom_height
+                        max_top = min(max_top_layers, int(remaining_height / PRODUCTS[main_product]["height"]))
+
+                        for top_layers in range(min_top_layers, max_top + 1):
+                            configs.append([(0, bottom_name, 2), (1, main_product, top_layers)])
+        else:
+            # 非主产品段，或没有其他货品可用，使用常规逻辑
+            max_layers = int(container_height / PRODUCTS[name]["height"])
+            for layers in range(1, max_layers + 1):
+                configs.append([(0, name, layers)])
+
+        position_configs.append((pos, configs))
+
+    # 生成所有组合的笛卡尔积
+    if not position_configs:
+        return
+
+    positions = [pc[0] for pc in position_configs]
+    configs_lists = [pc[1] for pc in position_configs]
+
+    for combo in itertools.product(*configs_lists):
+        yield [(pos, config) for pos, config in zip(positions, combo)]
+
+
+def calculate_compact_layout_v3(layers_config, container_width, container_height, product_quantities):
+    """
+    计算垂直混合的紧凑布局
+
+    参数:
+        layers_config: 该段的层配置，格式 [(layer_index, product_name, layers), ...]
+        container_width: 柜子宽度
+        container_height: 柜子高度
+        product_quantities: 各货品需求数量
+
+    返回:
+        布局信息字典
+    """
+    total_actual_length = 0
+    total_boxes = 0
+    segment_details = []
+
+    for layer_idx, product_name, layers in layers_config:
+        # 计算该层的高度
+        layer_height = PRODUCTS[product_name]["height"] * layers
+
+        # 该层需要的箱数（向上取整，确保至少1层）
+        if total_boxes == 0:
+            # 第一层，计算需要的箱数
+            boxes_per_layer = (product_quantities[product_name] + layers - 1) // layers
+        else:
+            # 后续层，暂时按0箱计算（实际使用时会更精确）
+            boxes_per_layer = 0
+
+        # 计算该层的布局
+        layout_info = calculate_compact_layout(
+            boxes_per_layer, container_width, layer_height, product_name
+        )
+
+        total_actual_length += layout_info["actual_length"]
+        total_boxes += layout_info["total_boxes"]
+        segment_details.append({
+            "layer_index": layer_idx,
+            "product_name": product_name,
+            "layers": layers,
+            "height": layer_height,
+            "rows": layout_info["rows"],
+            "cols": layout_info["cols"],
+            "total_boxes": layout_info["total_boxes"],
+            "direction": layout_info["direction"],
+            "actual_length": layout_info["actual_length"]
+        })
+
+    return {
+        "total_actual_length": total_actual_length,
+        "total_boxes": total_boxes,
+        "segment_details": segment_details,
+        "mixed_layout": {
+            "type": "vertical_mixing",
+            "layers": segment_details
+        }
+    }
 
 
 def distribute_quantity(total_quantity, num_segments):
@@ -557,6 +812,7 @@ def calculate_compact_layout(quantity, container_width, segment_height, product_
     
     # 每层能放的箱数
     boxes_per_layer = (quantity + layers - 1) // layers  # 向上取整
+    boxes_per_layer = int(boxes_per_layer)  # 确保是整数
     
     # 计算两种方向的参数
     # 方向1：货品长沿柜子长，宽沿柜子宽
@@ -621,8 +877,7 @@ def calculate_compact_layout(quantity, container_width, segment_height, product_
         boxes_remaining = boxes_per_layer - boxes_in_rows1
 
         if boxes_remaining > 0:
-            rows2 = (boxes_remaining + boxes_per_row2 - 1) // boxes_per_row2
-            rows2 = int(rows2)  # 确保是整数
+            rows2 = int((boxes_remaining + boxes_per_row2 - 1) // boxes_per_row2)
             total_length = rows1 * box_length1 + rows2 * box_length2
 
             if total_length < best_length:
@@ -652,8 +907,7 @@ def calculate_compact_layout(quantity, container_width, segment_height, product_
         boxes_remaining = boxes_per_layer - boxes_in_rows1
 
         if boxes_remaining > 0:
-            rows2 = (boxes_remaining + boxes_per_row2 - 1) // boxes_per_row2
-            rows2 = int(rows2)  # 确保是整数
+            rows2 = int((boxes_remaining + boxes_per_row2 - 1) // boxes_per_row2)
             total_length = rows1 * box_length1 + rows2 * box_length2
 
             if total_length < best_length:
@@ -691,8 +945,7 @@ def calculate_compact_layout(quantity, container_width, segment_height, product_
         boxes_remaining = boxes_per_layer - boxes_in_rows2
 
         if boxes_remaining > 0:
-            rows1 = (boxes_remaining + boxes_per_row1 - 1) // boxes_per_row1
-            rows1 = int(rows1)  # 确保是整数
+            rows1 = int((boxes_remaining + boxes_per_row1 - 1) // boxes_per_row1)
             total_length = rows2 * box_length2 + rows1 * box_length1
 
             if total_length < best_length:
@@ -721,8 +974,7 @@ def calculate_compact_layout(quantity, container_width, segment_height, product_
         boxes_remaining = boxes_per_layer - boxes_in_rows2
 
         if boxes_remaining > 0:
-            rows1 = (boxes_remaining + boxes_per_row1 - 1) // boxes_per_row1
-            rows1 = int(rows1)  # 确保是整数
+            rows1 = int((boxes_remaining + boxes_per_row1 - 1) // boxes_per_row1)
             total_length = rows2 * box_length2 + rows1 * box_length1
 
             if total_length < best_length:
@@ -769,8 +1021,8 @@ def calculate_compact_layout(quantity, container_width, segment_height, product_
             continue
         
         # 计算需要多少个完整pattern
-        full_patterns = boxes_per_layer // boxes_per_pattern
-        remaining_boxes = boxes_per_layer % boxes_per_pattern
+        full_patterns = int(boxes_per_layer // boxes_per_pattern)
+        remaining_boxes = int(boxes_per_layer % boxes_per_pattern)
         
         # 完整pattern的总行数和长度
         full_pattern_rows = int(full_patterns * (rows_dir1 + rows_dir2))
@@ -782,12 +1034,12 @@ def calculate_compact_layout(quantity, container_width, segment_height, product_
             extra_rows1_needed = int((remaining_boxes + boxes_per_row1 - 1) // boxes_per_row1)
             length1_only = extra_rows1_needed * box_length1
             row_directions_1 = [1] * (full_pattern_rows + extra_rows1_needed)
-            
+
             if full_pattern_length + length1_only < best_length:
                 best_length = full_pattern_length + length1_only
                 # 构建完整的行方向列表
                 row_directions = []
-                for _ in range(full_patterns):
+                for _ in range(int(full_patterns)):
                     row_directions.extend([1] * rows_dir1 + [2] * rows_dir2)
                 row_directions.extend([1] * extra_rows1_needed)
                 
@@ -807,14 +1059,14 @@ def calculate_compact_layout(quantity, container_width, segment_height, product_
                 }
             
             # 策略B: 全用方向2
-            extra_rows2_needed = (remaining_boxes + boxes_per_row2 - 1) // boxes_per_row2
+            extra_rows2_needed = int((remaining_boxes + boxes_per_row2 - 1) // boxes_per_row2)
             length2_only = extra_rows2_needed * box_length2
-            
+
             if full_pattern_length + length2_only < best_length:
                 best_length = full_pattern_length + length2_only
                 # 构建完整的行方向列表
                 row_directions = []
-                for _ in range(full_patterns):
+                for _ in range(int(full_patterns)):
                     row_directions.extend([1] * rows_dir1 + [2] * rows_dir2)
                 row_directions.extend([2] * extra_rows2_needed)
                 
@@ -840,16 +1092,16 @@ def calculate_compact_layout(quantity, container_width, segment_height, product_
                 if micro_boxes_per_pattern == 0:
                     continue
                 
-                micro_full_patterns = remaining_boxes // micro_boxes_per_pattern
-                micro_remaining = remaining_boxes % micro_boxes_per_pattern
-                
+                micro_full_patterns = int(remaining_boxes // micro_boxes_per_pattern)
+                micro_remaining = int(remaining_boxes % micro_boxes_per_pattern)
+
                 if micro_full_patterns > 0:
                     micro_rows = micro_full_patterns * (micro_rows1 + micro_rows2)
                     micro_length = micro_full_patterns * (micro_rows1 * box_length1 + micro_rows2 * box_length2)
                     
                     # 处理micro剩余
                     if micro_remaining > 0:
-                        extra_rows1_micro = (micro_remaining + boxes_per_row1 - 1) // boxes_per_row1
+                        extra_rows1_micro = int((micro_remaining + boxes_per_row1 - 1) // boxes_per_row1)
                         extra_length_micro = extra_rows1_micro * box_length1
                     else:
                         extra_rows1_micro = 0
@@ -862,9 +1114,9 @@ def calculate_compact_layout(quantity, container_width, segment_height, product_
                         best_length = total_length
                         # 构建完整的行方向列表
                         row_directions = []
-                        for _ in range(full_patterns):
+                        for _ in range(int(full_patterns)):
                             row_directions.extend([1] * rows_dir1 + [2] * rows_dir2)
-                        for _ in range(micro_full_patterns):
+                        for _ in range(int(micro_full_patterns)):
                             row_directions.extend([1] * micro_rows1 + [2] * micro_rows2)
                         row_directions.extend([1] * extra_rows1_micro)
                         
@@ -886,12 +1138,12 @@ def calculate_compact_layout(quantity, container_width, segment_height, product_
             # 没有剩余箱子，完美匹配
             total_length = full_pattern_length
             total_rows = full_pattern_rows
-            
+
             if total_length < best_length:
                 best_length = total_length
                 # 构建完整的行方向列表
                 row_directions = []
-                for _ in range(full_patterns):
+                for _ in range(int(full_patterns)):
                     row_directions.extend([1] * rows_dir1 + [2] * rows_dir2)
                 
                 best_layout = {
