@@ -27,9 +27,6 @@ def calculate_top_layer_filled_score(segments):
         if "segment_details" in seg and seg["segment_details"]:
             # 垂直混合段：找到最上层有箱子的层
             top_layer = None
-            for detail in seg["segment_details"]:
-                if detail["total_boxes"] > 0:
-                    top_layer = detail
             # 找最顶层的非空层（layer_index最大）
             for detail in reversed(seg["segment_details"]):
                 if detail["total_boxes"] > 0:
@@ -43,12 +40,24 @@ def calculate_top_layer_filled_score(segments):
             layer_name = top_layer["product_name"]
             rows = top_layer["rows"]
             cols = top_layer["cols"]
+            direction = top_layer.get("direction", "长×宽")
 
             # 计算该层的最大容量（该产品在一层的最大箱子数）
             product = PRODUCTS[layer_name]
             box_l, box_w = product["length"], product["width"]
-            max_rows = math.floor(seg["width"] / box_w)
-            max_cols = math.floor(seg["width"] / box_l)
+
+            # 根据实际摆放方向计算最大容量
+            if direction == "长×宽":
+                max_rows = math.floor(seg["width"] / box_w)
+                max_cols = math.floor(seg["width"] / box_l)
+            elif direction == "宽×长":
+                max_rows = math.floor(seg["width"] / box_l)
+                max_cols = math.floor(seg["width"] / box_w)
+            else:
+                # 混合方向或垂直混合，按宽×长计算（更保守）
+                max_rows = math.floor(seg["width"] / box_l)
+                max_cols = math.floor(seg["width"] / box_w)
+
             max_boxes = max_rows * max_cols
 
             if max_boxes == 0:
@@ -59,9 +68,9 @@ def calculate_top_layer_filled_score(segments):
 
             # 根据铺满度给分
             if filled_ratio >= 0.9:
-                score += 50
+                score += 150
             elif filled_ratio >= 0.8:
-                score += 30
+                score += 100
         else:
             # 非垂直混合段：直接使用段的信息
             if seg["total_boxes"] == 0:
@@ -70,12 +79,24 @@ def calculate_top_layer_filled_score(segments):
             product_name = seg["name"]
             rows = seg["rows"]
             cols = seg["cols"]
+            direction = seg.get("direction", "长×宽")
 
             # 计算该产品在一层的最大箱子数
             product = PRODUCTS[product_name]
             box_l, box_w = product["length"], product["width"]
-            max_rows = math.floor(seg["width"] / box_w)
-            max_cols = math.floor(seg["width"] / box_l)
+
+            # 根据实际摆放方向计算最大容量
+            if direction == "长×宽":
+                max_rows = math.floor(seg["width"] / box_w)
+                max_cols = math.floor(seg["width"] / box_l)
+            elif direction == "宽×长":
+                max_rows = math.floor(seg["width"] / box_l)
+                max_cols = math.floor(seg["width"] / box_w)
+            else:
+                # 混合方向，按宽×长计算（更保守）
+                max_rows = math.floor(seg["width"] / box_l)
+                max_cols = math.floor(seg["width"] / box_w)
+
             max_boxes = max_rows * max_cols
 
             if max_boxes == 0:
@@ -86,9 +107,9 @@ def calculate_top_layer_filled_score(segments):
 
             # 根据铺满度给分
             if filled_ratio >= 0.9:
-                score += 50
+                score += 150
             elif filled_ratio >= 0.8:
-                score += 30
+                score += 100
 
     return score
 
@@ -289,8 +310,8 @@ def find_optimal_allocation(layout, product_quantities, container):
             diff = abs(sorted_heights[i] - sorted_heights[i + 1])
             max_adjacent_diff = max(max_adjacent_diff, diff)
 
-        # 硬约束：相邻高度差不能超过50cm（考虑实际操作和安全性）
-        MAX_HEIGHT_DIFF = 50  # cm，基于实际操作需求和运输安全
+        # 硬约束：相邻高度差不能超过20cm（考虑实际操作和安全性）
+        MAX_HEIGHT_DIFF = 20  # cm，基于实际操作需求和运输安全
         if max_adjacent_diff > MAX_HEIGHT_DIFF:
             continue  # 高度差过大，直接跳过该方案
 
@@ -404,7 +425,9 @@ def find_optimal_allocation(layout, product_quantities, container):
 
                 segments.extend(best_multi_segment_allocation)
                 total_actual_length += best_multi_segment_length
-                remaining_quantities[name] = 0  # 假设全部装完
+                # 计算实际装入的箱子数，更新剩余数量
+                actually_loaded = sum(seg["total_boxes"] for seg in best_multi_segment_allocation)
+                remaining_quantities[name] = total_quantity - actually_loaded
 
         # 再分配垂直混合段
         for pos, layer_list in vertical_mixed_segments.items():
@@ -433,8 +456,18 @@ def find_optimal_allocation(layout, product_quantities, container):
                     })
                     continue
 
-                # 计算该层能装的箱数
-                max_boxes_per_layer = (container_width / PRODUCTS[layer_name]["width"]) * (container_width / PRODUCTS[layer_name]["length"])  # 粗略估计
+                # 计算该层能装的箱数（考虑两种摆放方向）
+                box_l = PRODUCTS[layer_name]["length"]
+                box_w = PRODUCTS[layer_name]["width"]
+
+                # 方向1：长沿长度方向，宽沿宽度方向
+                boxes_per_layer_dir1 = math.floor(container_width / box_w) * math.floor(container_width / box_l)
+
+                # 方向2：宽沿长度方向，长沿宽度方向
+                boxes_per_layer_dir2 = math.floor(container_width / box_l) * math.floor(container_width / box_w)
+
+                # 取最大容量
+                max_boxes_per_layer = max(boxes_per_layer_dir1, boxes_per_layer_dir2)
                 max_boxes = max_boxes_per_layer * layers
 
                 # 按需求分配
@@ -476,7 +509,16 @@ def find_optimal_allocation(layout, product_quantities, container):
                 })
 
             # 创建垂直混合段
-            main_product_name = layer_list[0][1]  # 取第一层的名称（应该是主产品）
+            # 主产品是上层的产品（通常是最上面的层），取最后一个有箱子的层
+            main_product_name = None
+            for detail in reversed(segment_details):
+                if detail["total_boxes"] > 0:
+                    main_product_name = detail["product_name"]
+                    break
+            # 如果没有找到，使用最后一个层的配置
+            if main_product_name is None:
+                main_product_name = layer_list[-1][1]  # 取最上层的产品名称
+            
             segments.append({
                 "position": pos,
                 "name": main_product_name,
@@ -503,33 +545,35 @@ def find_optimal_allocation(layout, product_quantities, container):
             # 计算顶层铺满度评分
             top_layer_score = calculate_top_layer_filled_score(segments)
 
-            # 计算总分（装载数量优先，空间利用率次之）
-            score = loaded_count * 1000
-            score += (total_actual_length / total_length) * 50  # 奖励空间利用率
+            # 计算总分（装载数量优先，其他因素权重提升）
+            score = loaded_count * 500  # 基础分：每箱500分
 
             # 检查是否装下了所有货品
             total_required = sum(product_quantities.values())
             if loaded_count < total_required:
-                # 未装下所有箱子，大幅降低分数
-                # 这样如果没有方案能装下800箱，至少会返回装得最多的方案
+                # 未装下所有箱子，适度扣分
                 missing = total_required - loaded_count
-                score -= missing * 2000  # 大幅扣分，但仍保留参与比较的机会
-                # 添加调试信息
-                if best_allocation is None or loaded_count > best_allocation.get('total_loaded', 0):
-                    pass  # 这是目前找到的最多箱子数量
+                score -= missing * 100  # 适度扣分，保留参与比较的机会
 
-            # 重量中心评分优化：偏差越小越好
-            # 偏差≤10cm时给予额外奖励
-            if weight_deviation <= 10:
-                score += 200  # 重心偏差小，大幅奖励
+            # 重量中心评分优化：偏差越小越好，梯度奖励
+            if weight_deviation <= 5:
+                score += 800  # 非常好
+            elif weight_deviation <= 10:
+                score += 600  # 很好
+            elif weight_deviation <= 15:
+                score += 300  # 可接受
+            elif weight_deviation <= 20:
+                score += 100  # 一般
+            elif weight_deviation <= 30:
+                score -= weight_deviation * 3  # 轻度惩罚
             else:
-                score -= weight_deviation * 20  # 偏差越大，扣分越多
+                score -= weight_deviation * 5  # 严重惩罚
 
             # 奖励5L在中间段（轻的放中间，重的放两侧）
-            if layout[1] == "5L":
+            if len(layout) >= 2 and layout[1] == "5L":
                 score += 150  # 5L在中间段，额外奖励
 
-            # 奖励顶层铺满（每段铺满度>=90%奖励50分，>=80%奖励30分）
+            # 奖励顶层铺满（每段铺满度>=90%奖励150分，>=80%奖励100分）
             score += top_layer_score
 
             allocation = {
@@ -614,8 +658,9 @@ def generate_layers_combinations_v3(occupied_positions, container_height, produc
                     remaining_height = container_height - bottom_height
                     max_top = min(max_top_layers, int(remaining_height / PRODUCTS[main_product]["height"]))
 
-                    for top_layers in range(min_top_layers, max_top + 1):
-                        configs.append([(0, bottom_name, 1), (1, main_product, top_layers)])
+                    if max_top >= min_top_layers:  # 确保上层至少能放min_top_layers
+                        for top_layers in range(min_top_layers, max_top + 1):
+                            configs.append([(0, bottom_name, 1), (1, main_product, top_layers)])
 
                     # 下层2层
                     if max_bottom_layers >= 2:
@@ -623,8 +668,9 @@ def generate_layers_combinations_v3(occupied_positions, container_height, produc
                         remaining_height = container_height - bottom_height
                         max_top = min(max_top_layers, int(remaining_height / PRODUCTS[main_product]["height"]))
 
-                        for top_layers in range(min_top_layers, max_top + 1):
-                            configs.append([(0, bottom_name, 2), (1, main_product, top_layers)])
+                        if max_top >= min_top_layers:  # 确保上层至少能放min_top_layers
+                            for top_layers in range(min_top_layers, max_top + 1):
+                                configs.append([(0, bottom_name, 2), (1, main_product, top_layers)])
         else:
             # 非主产品段，或没有其他货品可用，使用常规逻辑
             max_layers = int(container_height / PRODUCTS[name]["height"])
