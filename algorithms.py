@@ -382,6 +382,7 @@ def find_optimal_allocation(layout, product_quantities, container):
                     "cols": boxes_info["cols"],
                     "total_boxes": boxes_info["total_boxes"],
                     "direction": boxes_info["direction"],
+                    "mixed_layout": boxes_info.get("mixed_layout"),
                     "layers_config": [(0, name, int(segment_height / PRODUCTS[name]["height"]))]
                 })
                 total_actual_length += boxes_info["actual_length"]
@@ -420,6 +421,7 @@ def find_optimal_allocation(layout, product_quantities, container):
                             "cols": boxes_info["cols"],
                             "total_boxes": boxes_info["total_boxes"],
                             "direction": boxes_info["direction"],
+                            "mixed_layout": boxes_info.get("mixed_layout"),
                             "layers_config": [(0, name, int(segment_height / PRODUCTS[name]["height"]))]
                         })
                         temp_length += boxes_info["actual_length"]
@@ -460,6 +462,7 @@ def find_optimal_allocation(layout, product_quantities, container):
                         "cols": 0,
                         "total_boxes": 0,
                         "direction": "无",
+                        "mixed_layout": None,
                         "actual_length": 0
                     })
                     continue
@@ -491,6 +494,7 @@ def find_optimal_allocation(layout, product_quantities, container):
                         "cols": 0,
                         "total_boxes": 0,
                         "direction": "无",
+                        "mixed_layout": None,
                         "actual_length": 0
                     })
                     continue
@@ -513,6 +517,7 @@ def find_optimal_allocation(layout, product_quantities, container):
                     "cols": boxes_info["cols"],
                     "total_boxes": boxes_info["total_boxes"],
                     "direction": boxes_info["direction"],
+                    "mixed_layout": boxes_info.get("mixed_layout"),
                     "actual_length": boxes_info["actual_length"]
                 })
 
@@ -946,7 +951,11 @@ def calculate_compact_layout(quantity, container_width, segment_height, product_
                         "type": "front_back",
                         "break_point": rows1,
                         "row_directions": row_directions,
-                        "row_breaks": [rows1]
+                        "row_breaks": [rows1],
+                        "cols_per_direction": {
+                            1: cols1,
+                            2: cols2
+                        }
                     }
                 }
     
@@ -976,7 +985,11 @@ def calculate_compact_layout(quantity, container_width, segment_height, product_
                         "type": "front_back",
                         "break_point": rows1,
                         "row_directions": row_directions,
-                        "row_breaks": [rows1]
+                        "row_breaks": [rows1],
+                        "cols_per_direction": {
+                            1: cols1,
+                            2: cols2
+                        }
                     }
                 }
     
@@ -1014,7 +1027,11 @@ def calculate_compact_layout(quantity, container_width, segment_height, product_
                         "type": "front_back",
                         "break_point": rows2,
                         "row_directions": row_directions,
-                        "row_breaks": [rows2]
+                        "row_breaks": [rows2],
+                        "cols_per_direction": {
+                            1: cols1,
+                            2: cols2
+                        }
                     }
                 }
 
@@ -1043,7 +1060,11 @@ def calculate_compact_layout(quantity, container_width, segment_height, product_
                         "type": "front_back",
                         "break_point": rows2,
                         "row_directions": row_directions,
-                        "row_breaks": [rows2]
+                        "row_breaks": [rows2],
+                        "cols_per_direction": {
+                            1: cols1,
+                            2: cols2
+                        }
                     }
                 }
     
@@ -1107,7 +1128,11 @@ def calculate_compact_layout(quantity, container_width, segment_height, product_
                         "pattern": (rows_dir1, rows_dir2),
                         "full_patterns": full_patterns,
                         "remaining_strategy": "dir1_only",
-                        "row_directions": row_directions
+                        "row_directions": row_directions,
+                        "cols_per_direction": {
+                            1: cols1,
+                            2: cols2
+                        }
                     }
                 }
             
@@ -1134,7 +1159,11 @@ def calculate_compact_layout(quantity, container_width, segment_height, product_
                         "pattern": (rows_dir1, rows_dir2),
                         "full_patterns": full_patterns,
                         "remaining_strategy": "dir2_only",
-                        "row_directions": row_directions
+                        "row_directions": row_directions,
+                        "cols_per_direction": {
+                            1: cols1,
+                            2: cols2
+                        }
                     }
                 }
             
@@ -1184,7 +1213,11 @@ def calculate_compact_layout(quantity, container_width, segment_height, product_
                                 "pattern": (rows_dir1, rows_dir2),
                                 "full_patterns": full_patterns,
                                 "remaining_strategy": f"micro_{micro_rows1}+{micro_rows2}",
-                                "row_directions": row_directions
+                                "row_directions": row_directions,
+                                "cols_per_direction": {
+                                    1: cols1,
+                                    2: cols2
+                                }
                             }
                         }
         else:
@@ -1210,7 +1243,11 @@ def calculate_compact_layout(quantity, container_width, segment_height, product_
                         "pattern": (rows_dir1, rows_dir2),
                         "full_patterns": full_patterns,
                         "remaining_strategy": "none",
-                        "row_directions": row_directions
+                        "row_directions": row_directions,
+                        "cols_per_direction": {
+                            1: cols1,
+                            2: cols2
+                        }
                     }
                 }
     

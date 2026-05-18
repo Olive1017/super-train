@@ -16,10 +16,218 @@ plt.rcParams['font.sans-serif'] = ['SimHei', 'Microsoft YaHei', 'Arial Unicode M
 plt.rcParams['axes.unicode_minus'] = False
 
 
+def generate_top_view_overall(solution, container_type):
+    """
+    生成整体俯视图（长度×宽度）
+    显示所有段在柜子中的实际位置和箱子布局
+    """
+    import matplotlib
+    matplotlib.use('Agg')
+
+    container = CONTAINERS[container_type]
+    segments = sorted(solution["segments"], key=lambda x: x["position"])
+
+    fig, ax = plt.subplots(figsize=(14, 6))
+
+    # 绘制柜子轮廓
+    ax.add_patch(Rectangle(
+        (0, 0), container["length"], container["width"],
+        linewidth=3, edgecolor='black', facecolor='none'
+    ))
+
+    current_x = 0
+    for seg in segments:
+        if seg["total_boxes"] == 0:
+            current_x += seg["actual_length"]
+            continue
+
+        product_name = seg["name"]
+        color = COLORS.get(product_name, "#DDA0DD")
+        product = PRODUCTS[product_name]
+
+        # 获取段信息
+        is_vertical_mixed = "segment_details" in seg and seg["segment_details"]
+
+        if is_vertical_mixed:
+            # 垂直混合段：使用最上层信息
+            top_layer = None
+            for detail in reversed(seg["segment_details"]):
+                if detail["total_boxes"] > 0:
+                    top_layer = detail
+                    break
+            if top_layer is None:
+                top_layer = seg["segment_details"][-1]
+
+            rows = top_layer["rows"]
+            cols = top_layer["cols"]
+            direction = top_layer["direction"]
+            boxes_to_draw = top_layer["total_boxes"]
+            mixed_layout = top_layer.get("mixed_layout")
+        else:
+            rows = seg["rows"]
+            cols = seg["cols"]
+            direction = seg["direction"]
+            boxes_to_draw = seg["total_boxes"]
+            mixed_layout = seg.get("mixed_layout")
+
+        box_l = product["length"]
+        box_w = product["width"]
+
+        # 判断是否为混合方向
+        is_mixed_direction = "混合" in direction and mixed_layout is not None
+
+        # 计算该段的实际占用空间
+        if is_mixed_direction and "row_directions" in mixed_layout:
+            row_directions = mixed_layout["row_directions"]
+            max_y_width = 0
+            for row_dir in row_directions:
+                if row_dir == 1:  # 长×宽：Y轴是宽
+                    max_y_width = max(max_y_width, cols * box_w)
+                else:  # 宽×长：Y轴是长
+                    max_y_width = max(max_y_width, cols * box_l)
+            actual_y_width = max_y_width
+        else:
+            box_length_y = box_w if "长×宽" in direction else box_l
+            actual_y_width = cols * box_length_y
+
+        # 绘制段的背景区域
+        seg_y_start = (container["width"] - actual_y_width) / 2
+        seg_rect = Rectangle(
+            (current_x, seg_y_start),
+            seg["actual_length"],
+            actual_y_width,
+            linewidth=2,
+            edgecolor='gray',
+            facecolor=color,
+            alpha=0.3
+        )
+        ax.add_patch(seg_rect)
+
+        # 绘制箱子
+        drawn_boxes = 0
+        current_y = seg_y_start
+
+        for i in range(int(rows)):
+            if drawn_boxes >= boxes_to_draw:
+                break
+
+            # 确定当前行的方向
+            if is_mixed_direction and "row_directions" in mixed_layout:
+                row_dir = mixed_layout["row_directions"][i] if i < len(mixed_layout["row_directions"]) else 1
+                box_length_x = box_l if row_dir == 1 else box_w  # 1=长×宽（X轴是长）, 2=宽×长（X轴是宽）
+                box_length_y = box_w if row_dir == 1 else box_l
+                # 根据方向使用对应的列数
+                if "cols_per_direction" in mixed_layout and row_dir in mixed_layout["cols_per_direction"]:
+                    current_cols = mixed_layout["cols_per_direction"][row_dir]
+                else:
+                    current_cols = cols
+            else:
+                box_length_x = box_l if "长×宽" in direction else box_w
+                box_length_y = box_w if "长×宽" in direction else box_l
+                row_dir = 1 if "长×宽" in direction else 2
+                # 非混合方向：根据方向计算列数
+                if "长×宽" in direction:
+                    current_cols = int(container_width / box_w)  # 宽沿柜子宽方向
+                else:
+                    current_cols = int(container_width / box_l)  # 长沿柜子宽方向
+
+            # 绘制当前行的箱子
+            for j in range(int(current_cols)):
+                if drawn_boxes >= boxes_to_draw:
+                    break
+
+                box_idx = drawn_boxes + 1
+                x = current_x + j * box_length_x
+                y = current_y
+
+                # 边界检查：确保箱子在柜子范围内
+                if x < 0 or y < 0 or x + box_length_x > container["length"] or y + box_length_y > container["width"]:
+                    print(f"警告: 箱子{box_idx}越界 - x:{x}, y:{y}, 长:{box_length_x}, 宽:{box_length_y}")
+                    continue
+
+                rect = Rectangle(
+                    (x, y), box_length_x, box_length_y,
+                    linewidth=1.5, edgecolor='black', facecolor=color, alpha=0.8
+                )
+                ax.add_patch(rect)
+
+                # 箱子编号（小字体）
+                font_size = max(6, min(8, min(box_length_x, box_length_y) / 4))
+                if font_size >= 6:
+                    ax.text(x + box_length_x/2, y + box_length_y/2,
+                           str(box_idx),
+                           ha='center', va='center',
+                           fontsize=font_size,
+                           color='white' if color in ['#0000FF', '#800080', '#008000'] else 'black')
+
+                # 箱子朝向指示（小箭头）
+                arrow_size = min(box_length_x, box_length_y) * 0.3
+                arrow_x = x + box_length_x - arrow_size
+                arrow_y = y + box_length_y - arrow_size
+
+                if row_dir == 1:  # 长×宽（红色）
+                    ax.arrow(arrow_x - arrow_size * 0.3, arrow_y,
+                            arrow_size * 0.6, 0,
+                            head_width=arrow_size * 0.2, head_length=arrow_size * 0.2,
+                            fc='red', ec='darkred', linewidth=1.5, alpha=0.7)
+                else:  # 宽×长（蓝色）
+                    ax.arrow(arrow_x, arrow_y - arrow_size * 0.3,
+                            0, arrow_size * 0.6,
+                            head_width=arrow_size * 0.2, head_length=arrow_size * 0.2,
+                            fc='blue', ec='darkblue', linewidth=1.5, alpha=0.7)
+
+                drawn_boxes += 1
+
+            current_y += box_length_y
+
+        # 段内信息
+        center_x = current_x + seg["actual_length"] / 2
+        center_y = seg_y_start + actual_y_width / 2
+
+        # 货品名称
+        ax.text(center_x, center_y + actual_y_width * 0.25,
+               product_name,
+               ha='center', va='center',
+               fontsize=11, fontweight='bold')
+
+        # 箱数和方向
+        ax.text(center_x, center_y,
+               f"{seg['total_boxes']}箱\n{direction}",
+               ha='center', va='center',
+               fontsize=9)
+
+        # 尺寸标注
+        ax.text(center_x, center_y - actual_y_width * 0.25,
+               f"{seg['actual_length']:.1f}cm",
+               ha='center', va='center',
+               fontsize=8)
+
+        current_x += seg["actual_length"]
+
+    # 设置坐标轴
+    ax.set_xlim(-30, container["length"] + 30)
+    ax.set_ylim(-30, container["width"] + 30)
+    ax.set_xlabel('长度 (cm)', fontsize=12)
+    ax.set_ylabel('宽度 (cm)', fontsize=12)
+    ax.set_title(f'{container_type} 整体俯视图', fontsize=14, fontweight='bold')
+    ax.set_aspect('equal')
+    ax.grid(True, alpha=0.3, linestyle='--')
+
+    # 转换为Base64
+    buf = BytesIO()
+    plt.tight_layout()
+    plt.savefig(buf, format='png', dpi=100, bbox_inches='tight', facecolor='white')
+    buf.seek(0)
+    img_base64 = base64.b64encode(buf.read()).decode('utf-8')
+    plt.close(fig)
+
+    return f"data:image/png;base64,{img_base64}"
+
+
 def generate_side_view(solution, container_type):
     """
     生成侧视图（最简洁：长度×高度）
-    清楚展示每段的位置、高度、货品
+    清楚展示每段的位置、高度、货品，以及每个箱子的轮廓
     """
     import matplotlib
     matplotlib.use('Agg')
@@ -31,22 +239,91 @@ def generate_side_view(solution, container_type):
 
     current_x = 0
     for seg in segments:
+        if seg["total_boxes"] == 0:
+            current_x += seg["actual_length"]
+            continue
+
         product_name = seg["name"]
         color = COLORS.get(product_name, "#DDA0DD")
+        product = PRODUCTS[product_name]
+        box_l = product["length"]
+        box_w = product["width"]
+        box_h = product["height"]
 
-        # 绘制段
-        rect = Rectangle(
-            (current_x, 0),
-            seg["actual_length"],
-            seg["height"],
-            linewidth=2,
-            edgecolor='black',
-            facecolor=color,
-            alpha=0.8
-        )
-        ax.add_patch(rect)
+        # 获取段的布局信息
+        is_vertical_mixed = "segment_details" in seg and seg["segment_details"]
 
-        # 段内信息
+        if is_vertical_mixed:
+            # 垂直混合段：使用最上层信息
+            top_layer = None
+            for detail in reversed(seg["segment_details"]):
+                if detail["total_boxes"] > 0:
+                    top_layer = detail
+                    break
+            if top_layer is None:
+                top_layer = seg["segment_details"][-1]
+
+            rows = top_layer["rows"]
+            cols = top_layer["cols"]
+            direction = top_layer["direction"]
+            boxes_to_draw = top_layer["total_boxes"]
+            mixed_layout = top_layer.get("mixed_layout")
+            layers = top_layer.get("layers", 1)
+        else:
+            rows = seg["rows"]
+            cols = seg["cols"]
+            direction = seg["direction"]
+            boxes_to_draw = seg["total_boxes"]
+            mixed_layout = seg.get("mixed_layout")
+            layers = seg["layers"]
+
+        # 判断是否为混合方向
+        is_mixed_direction = "混合" in direction and mixed_layout is not None
+
+        # 绘制箱子的轮廓（侧视图：只显示前面一列箱子）
+        drawn_boxes = 0
+
+        for i in range(int(rows)):
+            if drawn_boxes >= boxes_to_draw:
+                break
+
+            # 确定当前行的方向
+            if is_mixed_direction and "row_directions" in mixed_layout:
+                row_dir = mixed_layout["row_directions"][i] if i < len(mixed_layout["row_directions"]) else 1
+                box_length_x = box_l if row_dir == 1 else box_w  # 1=长×宽, 2=宽×长
+            else:
+                box_length_x = box_l if "长×宽" in direction else box_w
+
+            # 侧视图：每行只绘制一个箱子（从侧面看）
+            box_x = current_x + i * box_length_x
+
+            # 计算箱子的垂直位置（分层堆叠）
+            for k in range(int(layers)):
+                if drawn_boxes >= boxes_to_draw:
+                    break
+
+                box_y = k * box_h
+
+                # 边界检查：确保箱子在柜子范围内
+                if box_x < 0 or box_y < 0 or box_x + box_length_x > container["length"] or box_y + box_h > container["height"]:
+                    print(f"警告: 侧视图箱子越界 - x:{box_x}, y:{box_y}, 长:{box_length_x}, 高:{box_h}")
+                    continue
+
+                # 绘制单个箱子的轮廓
+                rect = Rectangle(
+                    (box_x, box_y),
+                    box_length_x,
+                    box_h,
+                    linewidth=1.5,
+                    edgecolor='black',
+                    facecolor=color,
+                    alpha=0.7
+                )
+                ax.add_patch(rect)
+
+                drawn_boxes += 1
+
+        # 段内信息（绘制在段中间）
         center_x = current_x + seg["actual_length"] / 2
         center_y = seg["height"] / 2
 
@@ -54,26 +331,29 @@ def generate_side_view(solution, container_type):
         ax.text(center_x, center_y + seg["height"] * 0.15,
                product_name,
                ha='center', va='center',
-               fontsize=12, fontweight='bold')
+               fontsize=12, fontweight='bold',
+               bbox=dict(boxstyle='round,pad=0.5', facecolor='white', alpha=0.8, edgecolor='black'))
 
         # 箱数
         ax.text(center_x, center_y,
                f"{seg['total_boxes']}箱",
                ha='center', va='center',
-               fontsize=10)
+               fontsize=10,
+               bbox=dict(boxstyle='round,pad=0.3', facecolor='white', alpha=0.8, edgecolor='black'))
 
         # 尺寸标注
         ax.text(center_x, center_y - seg["height"] * 0.15,
                f"{seg['actual_length']:.1f}×{seg['height']:.1f}cm",
                ha='center', va='center',
-               fontsize=9)
+               fontsize=9,
+               bbox=dict(boxstyle='round,pad=0.3', facecolor='white', alpha=0.8, edgecolor='black'))
 
         current_x += seg["actual_length"]
 
     # 柜子轮廓
     ax.add_patch(Rectangle(
         (0, 0), container["length"], container["height"],
-        linewidth=2, edgecolor='black', facecolor='none'
+        linewidth=3, edgecolor='black', facecolor='none'
     ))
 
     # 设置坐标轴
@@ -140,27 +420,30 @@ def generate_top_view_segment(seg, container_width):
     # 判断是否为混合方向
     is_mixed_direction = "混合" in direction and mixed_layout is not None
 
-    # 计算最大宽度（确保图能够容纳）
+    # 计算最大宽度（确保图能够容纳）- 横向显示
     if is_mixed_direction and "row_directions" in mixed_layout:
         # 混合方向：需要计算实际占用的最大宽度
         row_directions = mixed_layout["row_directions"]
         max_x_width = 0
         max_y_width = 0
         for row_dir in row_directions:
-            if row_dir == 1:  # 长×宽
-                max_x_width = max(max_x_width, cols * box_w)
-                max_y_width = max(max_y_width, cols * box_l)
-            else:  # 宽×长
+            if row_dir == 1:  # 长×宽：X轴是长，Y轴是宽
                 max_x_width = max(max_x_width, cols * box_l)
                 max_y_width = max(max_y_width, cols * box_w)
+            else:  # 宽×长：X轴是宽，Y轴是长
+                max_x_width = max(max_x_width, cols * box_w)
+                max_y_width = max(max_y_width, cols * box_l)
         actual_width = max_x_width
         actual_height = rows * max(box_l, box_w)
     else:
         # 单一方向
-        box_length_x = box_w if "宽×长" in direction else box_l
-        box_length_y = box_l if "宽×长" in direction else box_w
+        box_length_x = box_l if "长×宽" in direction else box_w
+        box_length_y = box_w if "长×宽" in direction else box_l
         actual_width = cols * box_length_x
         actual_height = rows * box_length_y
+
+    # 交换宽度和高度，使图横向显示
+    actual_width, actual_height = actual_height, actual_width
 
     # 计算边距（确保标注和箭头不超出边界）
     box_length_max = max(box_l, box_w)
@@ -169,14 +452,14 @@ def generate_top_view_segment(seg, container_width):
     margin_bottom = box_length_max * 4
     margin_top = box_length_max * 1
 
-    # 绘图
-    fig_width = max(8, (actual_width + margin_left + margin_right) / 25)
-    fig_height = max(6, (actual_height + margin_bottom + margin_top) / 25)
+    # 绘图 - 横向显示
+    fig_width = max(6, (actual_width + margin_left + margin_right) / 30)
+    fig_height = max(4, (actual_height + margin_bottom + margin_top) / 30)
     fig, ax = plt.subplots(figsize=(fig_width, fig_height))
 
-    # 绘制箱子（只绘制实际摆放的箱子）
+    # 绘制箱子（只绘制实际摆放的箱子）- 横向布局
     drawn_boxes = 0
-    current_y = 0
+    current_x = 0
 
     for i in range(int(rows)):
         if drawn_boxes >= boxes_to_draw:
@@ -188,22 +471,28 @@ def generate_top_view_segment(seg, container_width):
             box_length_x = box_w if row_dir == 2 else box_l  # 2=宽×长, 1=长×宽
             box_length_y = box_l if row_dir == 2 else box_w
         else:
-            box_length_x = box_w if "宽×长" in direction else box_l
-            box_length_y = box_l if "宽×长" in direction else box_w
+            box_length_x = box_l if "长×宽" in direction else box_w
+            box_length_y = box_w if "长×宽" in direction else box_l
             row_dir = 1 if "长×宽" in direction else 2
 
-        # 绘制当前行的箱子
+        # 绘制当前行的箱子 - 横向排列
         for j in range(int(cols)):
             if drawn_boxes >= boxes_to_draw:
                 break
 
             box_idx = drawn_boxes + 1
-            x = j * box_length_x
-            y = current_y
+            # 横向布局：x方向是原来的y，y方向是原来的x
+            y = j * box_length_y
+            x = current_x
+
+            # 边界检查：确保箱子在绘制范围内
+            if x < 0 or y < 0 or x + box_length_x > actual_width or y + box_length_y > actual_height:
+                print(f"警告: 段视图箱子{box_idx}超出绘制范围 - x:{x}, y:{y}")
+                continue
 
             rect = Rectangle(
                 (x, y), box_length_x, box_length_y,
-                linewidth=1.5, edgecolor='black', facecolor=color, alpha=0.8
+                linewidth=1.5, edgecolor='black', facecolor=color, alpha=0.85
             )
             ax.add_patch(rect)
 
@@ -215,30 +504,31 @@ def generate_top_view_segment(seg, container_width):
                    fontsize=font_size, fontweight='bold',
                    color='white' if color in ['#0000FF', '#800080', '#008000'] else 'black')
 
-            # 箱子朝向指示（在箱子右上角画一个小箭头或符号）
-            arrow_size = min(box_length_x, box_length_y) * 0.25
+            # 箱子朝向指示（在箱子右上角画一个大箭头）- 横向布局
+            arrow_size = min(box_length_x, box_length_y) * 0.35
             arrow_x = x + box_length_x - arrow_size
             arrow_y = y + box_length_y - arrow_size
 
-            if row_dir == 1:  # 长×宽：长边沿X轴
+            # 使用不同颜色区分两种方向
+            if row_dir == 1:  # 长×宽：长边沿X轴（用红色）
                 ax.arrow(arrow_x - arrow_size * 0.3, arrow_y,
                         arrow_size * 0.6, 0,
-                        head_width=arrow_size * 0.2, head_length=arrow_size * 0.2,
-                        fc='black', ec='black', linewidth=1, alpha=0.5)
-            else:  # 宽×长：长边沿Y轴
+                        head_width=arrow_size * 0.25, head_length=arrow_size * 0.25,
+                        fc='red', ec='darkred', linewidth=2.5, alpha=0.8)
+            else:  # 宽×长：长边沿Y轴（用蓝色）
                 ax.arrow(arrow_x, arrow_y - arrow_size * 0.3,
                         0, arrow_size * 0.6,
-                        head_width=arrow_size * 0.2, head_length=arrow_size * 0.2,
-                        fc='black', ec='black', linewidth=1, alpha=0.5)
+                        head_width=arrow_size * 0.25, head_length=arrow_size * 0.25,
+                        fc='blue', ec='darkblue', linewidth=2.5, alpha=0.8)
 
             drawn_boxes += 1
 
-        # 移动到下一行
-        current_y += box_length_y
+        # 移动到下一行 - 横向布局
+        current_x += box_length_x
 
-    # 绘制柜子边界
+    # 绘制柜子边界 - 横向显示
     container_rect = Rectangle(
-        (0, 0), container_width, actual_height,
+        (0, 0), actual_width, actual_height,
         linewidth=2, edgecolor='gray', facecolor='none', linestyle='--', alpha=0.5
     )
     ax.add_patch(container_rect)
@@ -276,23 +566,23 @@ def generate_top_view_segment(seg, container_width):
                ha='center', va='bottom', fontsize=10, fontweight='bold', color='red',
                bbox=dict(boxstyle='round,pad=0.3', facecolor='white', alpha=0.8, edgecolor='red'))
 
-    # 设置图形范围
-    ax.set_xlim(-margin_left, max(actual_width + margin_right, container_width))
+    # 设置图形范围 - 横向显示
+    ax.set_xlim(-margin_left, actual_width + margin_right)
     ax.set_ylim(-margin_bottom, actual_height + margin_top)
     ax.set_aspect('equal')
     ax.grid(True, alpha=0.3, linestyle='--')
-    ax.set_xlabel('宽度 (cm)', fontsize=10)
-    ax.set_ylabel('深度 (cm)', fontsize=10)
-    ax.set_title(f"{product_name} - 俯视图 (实际摆放{boxes_to_draw}箱, {direction})", fontsize=12, fontweight='bold')
+    ax.set_xlabel('长度方向 (cm)', fontsize=10)
+    ax.set_ylabel('宽度方向 (cm)', fontsize=10)
+    ax.set_title(f"{product_name} - 平面图 (实际摆放{boxes_to_draw}箱, {direction})", fontsize=12, fontweight='bold')
 
     # 添加朝向图例说明
-    legend_text = "箱子右上角箭头：\n→ 长边沿宽度方向 (长×宽)\n↑ 长边沿深度方向 (宽×长)"
+    legend_text = "🔴 红色箭头：长边沿长度方向 (长×宽)\n🔵 蓝色箭头：长边沿宽度方向 (宽×长)"
     ax.text(
-        actual_width - box_length_max * 2, -box_length_max * 2.5,
+        actual_width - box_length_max * 3, -box_length_max * 3,
         legend_text,
-        fontsize=8,
+        fontsize=10, fontweight='bold',
         ha='right', va='top',
-        bbox=dict(boxstyle='round,pad=0.5', facecolor='lightyellow', alpha=0.9, edgecolor='orange')
+        bbox=dict(boxstyle='round,pad=0.8', facecolor='lightyellow', alpha=0.95, edgecolor='orange', linewidth=2)
     )
 
     # 转换为Base64
@@ -413,7 +703,7 @@ def display_visualization_simple(solution, container_type):
 
     container = CONTAINERS[container_type]
 
-    # 1. 侧视图
+    # 1. 两个视图
     col1, col2 = st.columns([2, 1])
 
     with col1:
@@ -435,12 +725,23 @@ def display_visualization_simple(solution, container_type):
 
     st.divider()
 
-    # 2. 逐段操作指南
+    # 2. 整体俯视图
+    st.markdown("### 整体俯视图（长度×宽度）")
+    top_overall_img = generate_top_view_overall(solution, container_type)
+    st.image(top_overall_img, use_container_width=True)
+
+    st.divider()
+
+    # 3. 逐段操作指南
     st.markdown("### 👷 装箱操作步骤")
 
     steps = generate_worker_steps(solution, container_type)
 
     for step in steps:
+        # 跳过0箱的步骤
+        if step["boxes"] == 0:
+            continue
+
         with st.expander(
             f"步骤 {step['step_num']}: {step['position']} - {step['product']} "
             f"({step['boxes']}箱)",
@@ -461,113 +762,22 @@ def display_visualization_simple(solution, container_type):
                 st.markdown(f"**摆放**: {step['rows']}×{step['cols']}")
                 st.markdown(f"**层数**: {step['layers']}")
 
-            # 俯视图
-            st.markdown("#### 平面图")
-
-            # 垂直混合段：添加层级选择
+            # 垂直混合段：显示层级信息
             if step["is_vertical_mixed"]:
-                layers_with_boxes = [d for d in step["segment_details"] if d["total_boxes"] > 0]
-
-                if len(layers_with_boxes) > 1:
-                    # 多层：显示选择器
-                    layer_options = [
-                        f"第 {d['layer_index'] + 1} 层 - {d['product_name']} ({d['total_boxes']}箱)"
-                        for d in layers_with_boxes
-                    ]
-                    selected_layer = st.selectbox(
-                        "选择要查看的层：",
-                        range(len(layer_options)),
-                        format_func=lambda i: layer_options[i],
-                        key=f"step_{step['step_num']}_layer_selector"
-                    )
-
-                    # 显示选中的层级详情
-                    selected_detail = layers_with_boxes[selected_layer]
-                    st.info(f"📌 当前查看：{layer_options[selected_layer]}")
-
-                    # 生成该层的俯视图
-                    top_img = generate_top_view_segment({
-                        "name": selected_detail["product_name"],
-                        "rows": selected_detail["rows"],
-                        "cols": selected_detail["cols"],
-                        "direction": selected_detail["direction"],
-                        "total_boxes": selected_detail["total_boxes"],
-                        "mixed_layout": selected_detail.get("mixed_layout"),
-                        "segment_details": [selected_detail]
-                    }, container["width"])
-                    st.image(top_img, use_container_width=True)
-
-                    # 显示该层信息
-                    col_a, col_b = st.columns(2)
-                    with col_a:
-                        st.markdown(f"**摆放方向**: {selected_detail['direction']}")
-                        st.markdown(f"**每层箱数**: {selected_detail['total_boxes']}")
-                    with col_b:
-                        st.markdown(f"**堆叠层数**: {selected_detail['layers']}")
-                        st.markdown(f"**该层总箱数**: {selected_detail['total_boxes'] * selected_detail['layers']}")
-
-                    # 显示其他层概览
-                    with st.expander("查看其他层级详情", expanded=False):
-                        for i, detail in enumerate(step["segment_details"]):
-                            if i != selected_layer and detail["total_boxes"] > 0:
-                                st.markdown(f"""
-                                **第 {detail['layer_index'] + 1} 层（{detail['product_name']}）**:
-                                - 摆放方向：{detail['direction']}
-                                - 每层 {detail['total_boxes']} 箱，共 {detail['layers']} 层
-                                - 该层总箱数：{detail['total_boxes'] * detail['layers']}
-                                """)
-                else:
-                    # 单层：直接显示
-                    top_img = generate_top_view_segment({
-                        "name": step["product"],
-                        "rows": step["rows"],
-                        "cols": step["cols"],
-                        "direction": step["direction"],
-                        "mixed_layout": step["mixed_layout"],
-                        "segment_details": step["segment_details"]
-                    }, container["width"])
-                    st.image(top_img, use_container_width=True)
-
-                    st.info("📌 此段只有一种货品，直接按最上层布局装载")
+                st.info("📌 垂直混合段：按以下顺序分层装载")
+                for detail in step["segment_details"]:
+                    if detail["total_boxes"] > 0:
+                        st.markdown(f"""
+                        **第 {detail['layer_index'] + 1} 层（{detail['product_name']}）**:
+                        - 摆放方向：{detail['direction']}
+                        - 堆叠 {detail['layers']} 层
+                        - 该层总箱数：{detail['total_boxes']} × {detail['layers']} = {detail['total_boxes'] * detail['layers']} 箱
+                        """)
             else:
                 # 普通段：检查是否铺满
                 capacity = int(step["rows"]) * int(step["cols"]) * int(step["layers"])
                 if step["boxes"] < capacity:
                     st.warning(f"⚠️ 注意：该段容量为 {capacity} 箱，实际只装 {step['boxes']} 箱，最上层未铺满")
-
-                top_img = generate_top_view_segment({
-                    "name": step["product"],
-                    "rows": step["rows"],
-                    "cols": step["cols"],
-                    "direction": step["direction"],
-                    "total_boxes": step["boxes"],
-                    "mixed_layout": step["mixed_layout"]
-                }, container["width"])
-                st.image(top_img, use_container_width=True)
-
-            # 操作提示
-            st.markdown("#### 操作要点")
-            st.markdown(f"""
-            - ✅ 从 **{step['start_pos']:.1f} cm** 位置开始
-            - ✅ 按平面图编号顺序摆放
-            - ✅ 逐层堆叠，共 **{step['layers']}** 层
-            - ✅ 确保每层平整后再堆叠下一层
-            """)
-
-            # 垂直混合段特殊说明
-            if step["is_vertical_mixed"]:
-                st.warning("⚠️ 此段为垂直混合段，按以下顺序分层装载：")
-                for detail in step["segment_details"]:
-                    if detail["total_boxes"] > 0:
-                        layer_name = detail["product_name"]
-                        layer_count = detail["layers"]
-                        layer_boxes = detail["total_boxes"]
-                        st.markdown(f"""
-                        **第 {detail['layer_index'] + 1} 层（{layer_name}）**:
-                        - 堆叠 {layer_count} 层
-                        - 装 {layer_boxes} 箱
-                        - 方向：{detail['direction']}
-                        """)
 
     st.divider()
 
@@ -597,6 +807,10 @@ def generate_text_guide(solution, container_type):
 
 """
     for step in steps:
+        # 跳过0箱的步骤
+        if step["boxes"] == 0:
+            continue
+
         text += f"""
 步骤 {step['step_num']}: {step['position']} - {step['product']}
 {'-'*60}
@@ -606,19 +820,7 @@ def generate_text_guide(solution, container_type):
 堆叠高度: {step['height']:.1f} cm ({step['layers']}层)
 摆放方式: {step['rows']}行 × {step['cols']}列
 总箱数: {step['boxes']}箱
-
-操作要点:
-1. 从 {step['start_pos']:.1f} cm 位置开始
-2. 按平面图编号顺序摆放
-3. 逐层堆叠，共 {step['layers']} 层
-4. 确保每层平整后再堆叠下一层
 """
-        if step["is_vertical_mixed"]:
-            text += "\n垂直混合段装载顺序:\n"
-            for detail in step["segment_details"]:
-                if detail["total_boxes"] > 0:
-                    text += f"  第{detail['layer_index']+1}层: {detail['product_name']}, " \
-                           f"{detail['layers']}层, {detail['total_boxes']}箱\n"
 
     text += f"\n{'='*60}\n安全提示:\n1. 装载前检查柜子内部\n2. 确保货品包装完好\n3. 保持重量平衡\n4. 每层检查平整度\n5. 最后检查顶部空隙\n{'='*60}\n"
 
