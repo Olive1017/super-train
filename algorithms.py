@@ -48,17 +48,25 @@ def calculate_top_layer_filled_score(segments):
 
             # 根据实际摆放方向计算最大容量
             if direction == "长×宽":
-                max_rows = math.floor(seg["width"] / box_w)
-                max_cols = math.floor(seg["width"] / box_l)
+                # 长沿柜子长，宽沿柜子宽
+                max_cols = math.floor(seg["width"] / box_w)      # 沿宽度方向能放的箱数
+                # 估算最大行数：基于实际箱子数和列数反推
+                if cols > 0:
+                    max_rows_est = max(rows, math.ceil((rows * cols) / max_cols))
+                else:
+                    max_rows_est = 1
+                max_boxes = max_cols * max_rows_est
             elif direction == "宽×长":
-                max_rows = math.floor(seg["width"] / box_l)
-                max_cols = math.floor(seg["width"] / box_w)
+                # 宽沿柜子长，长沿柜子宽
+                max_cols = math.floor(seg["width"] / box_l)      # 沿宽度方向能放的箱数
+                if cols > 0:
+                    max_rows_est = max(rows, math.ceil((rows * cols) / max_cols))
+                else:
+                    max_rows_est = 1
+                max_boxes = max_cols * max_rows_est
             else:
-                # 混合方向或垂直混合，按宽×长计算（更保守）
-                max_rows = math.floor(seg["width"] / box_l)
-                max_cols = math.floor(seg["width"] / box_w)
-
-            max_boxes = max_rows * max_cols
+                # 混合方向或垂直混合，简化处理：假设实际容量
+                max_boxes = rows * cols if rows * cols > 0 else 1
 
             if max_boxes == 0:
                 continue
@@ -855,10 +863,9 @@ def calculate_compact_layout(quantity, container_width, segment_height, product_
     if layers == 0:
         return {"rows": 0, "cols": 0, "total_boxes": 0, "direction": "无", "actual_length": 0,
                 "mixed_layout": None}
-    
-    # 每层能放的箱数
-    boxes_per_layer = (quantity + layers - 1) // layers  # 向上取整
-    boxes_per_layer = int(boxes_per_layer)  # 确保是整数
+
+    # 每层能放的箱数（向上取整，确保能装下所有箱子）
+    boxes_per_layer = math.ceil(quantity / layers)
     
     # 计算两种方向的参数
     # 方向1：货品长沿柜子长，宽沿柜子宽
