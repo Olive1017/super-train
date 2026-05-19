@@ -213,15 +213,15 @@ def generate_top_view_overall(solution, container_type):
     ax.set_aspect('equal')
     ax.grid(True, alpha=0.3, linestyle='--')
 
-    # 转换为Base64
+    # 转换为 BytesIO 对象
     buf = BytesIO()
     plt.tight_layout()
     plt.savefig(buf, format='png', dpi=100, bbox_inches='tight', facecolor='white')
     buf.seek(0)
-    img_base64 = base64.b64encode(buf.read()).decode('utf-8')
     plt.close(fig)
 
-    return f"data:image/png;base64,{img_base64}"
+    return buf
+
 
 
 def generate_side_view(solution, container_type):
@@ -370,10 +370,9 @@ def generate_side_view(solution, container_type):
     plt.tight_layout()
     plt.savefig(buf, format='png', dpi=100, bbox_inches='tight', facecolor='white')
     buf.seek(0)
-    img_base64 = base64.b64encode(buf.read()).decode('utf-8')
     plt.close(fig)
 
-    return f"data:image/png;base64,{img_base64}"
+    return buf
 
 
 def generate_top_view_segment(seg, container_width):
@@ -585,15 +584,14 @@ def generate_top_view_segment(seg, container_width):
         bbox=dict(boxstyle='round,pad=0.8', facecolor='lightyellow', alpha=0.95, edgecolor='orange', linewidth=2)
     )
 
-    # 转换为Base64
+    # 转换为 BytesIO 对象
     buf = BytesIO()
     plt.tight_layout()
     plt.savefig(buf, format='png', dpi=120, bbox_inches='tight', facecolor='white')
     buf.seek(0)
-    img_base64 = base64.b64encode(buf.read()).decode('utf-8')
     plt.close(fig)
 
-    return f"data:image/png;base64,{img_base64}"
+    return buf
 
 
 def generate_summary_table(solution):
