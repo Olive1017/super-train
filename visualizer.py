@@ -11,8 +11,8 @@ import base64
 from io import BytesIO
 from config import CONTAINERS, PRODUCTS, COLORS, POSITIONS_MAP
 
-# 配置中文字体
-plt.rcParams['font.sans-serif'] = ['SimHei', 'Microsoft YaHei', 'Arial Unicode MS', 'DejaVu Sans']
+# 配置字体 - 使用英文标签避免云端字体问题
+plt.rcParams['font.sans-serif'] = ['DejaVu Sans', 'Arial']
 plt.rcParams['axes.unicode_minus'] = False
 
 
@@ -207,9 +207,9 @@ def generate_top_view_overall(solution, container_type):
     # 设置坐标轴
     ax.set_xlim(-30, container["length"] + 30)
     ax.set_ylim(-30, container["width"] + 30)
-    ax.set_xlabel('长度 (cm)', fontsize=12)
-    ax.set_ylabel('宽度 (cm)', fontsize=12)
-    ax.set_title(f'{container_type} 整体俯视图', fontsize=14, fontweight='bold')
+    ax.set_xlabel('Length (cm)', fontsize=12)
+    ax.set_ylabel('Width (cm)', fontsize=12)
+    ax.set_title(f'{container_type} - Top View', fontsize=14, fontweight='bold')
     ax.set_aspect('equal')
     ax.grid(True, alpha=0.3, linestyle='--')
 
@@ -359,9 +359,9 @@ def generate_side_view(solution, container_type):
     # 设置坐标轴
     ax.set_xlim(-50, container["length"] + 50)
     ax.set_ylim(-50, container["height"] + 50)
-    ax.set_xlabel('长度 (cm)', fontsize=12)
-    ax.set_ylabel('高度 (cm)', fontsize=12)
-    ax.set_title(f'{container_type} 侧视图', fontsize=14, fontweight='bold')
+    ax.set_xlabel('Length (cm)', fontsize=12)
+    ax.set_ylabel('Height (cm)', fontsize=12)
+    ax.set_title(f'{container_type} - Side View', fontsize=14, fontweight='bold')
     ax.set_aspect('equal')
     ax.grid(True, alpha=0.3, linestyle='--')
 
@@ -535,7 +535,7 @@ def generate_top_view_segment(seg, container_width):
     # 起始位置标注（带边框）
     start_x = box_length_max / 2
     start_y = -box_length_max * 1.5
-    ax.annotate("▶️ 起始位置",
+    ax.annotate("▶️ Start Position",
                 xy=(start_x, start_y),
                 xytext=(start_x, start_y),
                 fontsize=11, fontweight='bold', color='black',
@@ -545,7 +545,7 @@ def generate_top_view_segment(seg, container_width):
     # 方向标注
     if is_mixed_direction:
         # 混合方向：显示标注说明
-        direction_text = f"混合方向：{direction}"
+        direction_text = f"Mixed: {direction}"
         ax.text(
             actual_width / 2, -box_length_max * 0.8,
             direction_text,
@@ -570,12 +570,12 @@ def generate_top_view_segment(seg, container_width):
     ax.set_ylim(-margin_bottom, actual_height + margin_top)
     ax.set_aspect('equal')
     ax.grid(True, alpha=0.3, linestyle='--')
-    ax.set_xlabel('长度方向 (cm)', fontsize=10)
-    ax.set_ylabel('宽度方向 (cm)', fontsize=10)
-    ax.set_title(f"{product_name} - 平面图 (实际摆放{boxes_to_draw}箱, {direction})", fontsize=12, fontweight='bold')
+    ax.set_xlabel('Length Direction (cm)', fontsize=10)
+    ax.set_ylabel('Width Direction (cm)', fontsize=10)
+    ax.set_title(f"{product_name} - Layout (Actual: {boxes_to_draw} boxes, {direction})", fontsize=12, fontweight='bold')
 
     # 添加朝向图例说明
-    legend_text = "🔴 红色箭头：长边沿长度方向 (长×宽)\n🔵 蓝色箭头：长边沿宽度方向 (宽×长)"
+    legend_text = "🔴 Red: Long edge along length (L×W)\n🔵 Blue: Long edge along width (W×L)"
     ax.text(
         actual_width - box_length_max * 3, -box_length_max * 3,
         legend_text,
