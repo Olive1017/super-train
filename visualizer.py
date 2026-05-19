@@ -127,9 +127,9 @@ def generate_top_view_overall(solution, container_type):
                 row_dir = 1 if "长×宽" in direction else 2
                 # 非混合方向：根据方向计算列数
                 if "长×宽" in direction:
-                    current_cols = int(container_width / box_w)  # 宽沿柜子宽方向
+                    current_cols = int(container["width"] / box_w)  # 宽沿柜子宽方向
                 else:
-                    current_cols = int(container_width / box_l)  # 长沿柜子宽方向
+                    current_cols = int(container["width"] / box_l)  # 长沿柜子宽方向
 
             # 绘制当前行的箱子
             for j in range(int(current_cols)):
