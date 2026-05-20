@@ -7,24 +7,33 @@ import streamlit as st
 import matplotlib.pyplot as plt
 import matplotlib.patches as patches
 from matplotlib.patches import Rectangle
+import matplotlib.font_manager as fm
 import base64
+import os
 from io import BytesIO
 from config import CONTAINERS, PRODUCTS, COLORS, get_position_name
 
-# 配置字体 - 支持中文显示（兼容 Windows 和 Linux）
-# Windows: SimHei, Microsoft YaHei
-# Linux: WenQuanYi Micro Hei, WenQuanYi Zen Hei, Noto Sans CJK
-plt.rcParams['font.sans-serif'] = [
-    'WenQuanYi Micro Hei',  # Linux 常用中文字体
-    'WenQuanYi Zen Hei',    # Linux 常用中文字体
-    'Noto Sans CJK SC',     # Google 开源中文字体
-    'Droid Sans Fallback',  # Android/Linux 备选字体
-    'SimHei',               # Windows 黑体
-    'Microsoft YaHei',      # Windows 微软雅黑
-    'DejaVu Sans',
-    'Arial'
-]
-plt.rcParams['axes.unicode_minus'] = False
+# 加载自定义中文字体
+current_dir = os.path.dirname(os.path.abspath(__file__))
+font_path = os.path.join(current_dir, 'fonts', 'simhei.ttf')
+
+if os.path.exists(font_path):
+    try:
+        # 注册字体到 matplotlib
+        font_prop = fm.FontProperties(fname=font_path)
+        plt.rcParams['font.family'] = font_prop.get_name()
+        plt.rcParams['axes.unicode_minus'] = False
+        print(f"成功加载自定义字体: {font_prop.get_name()}")
+    except Exception as e:
+        print(f"加载自定义字体失败: {e}")
+        # 回退到默认字体
+        plt.rcParams['font.sans-serif'] = ['DejaVu Sans', 'Arial']
+        plt.rcParams['axes.unicode_minus'] = False
+else:
+    print(f"字体文件不存在: {font_path}")
+    # 使用系统默认字体
+    plt.rcParams['font.sans-serif'] = ['DejaVu Sans', 'Arial']
+    plt.rcParams['axes.unicode_minus'] = False
 
 
 def generate_top_view_overall(solution, container_type):
