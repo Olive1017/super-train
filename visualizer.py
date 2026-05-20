@@ -14,26 +14,47 @@ from io import BytesIO
 from config import CONTAINERS, PRODUCTS, COLORS, get_position_name
 
 # 加载自定义中文字体
-current_dir = os.path.dirname(os.path.abspath(__file__))
-font_path = os.path.join(current_dir, 'fonts', 'simhei.ttf')
+def load_custom_font():
+    """加载自定义中文字体，支持绝对路径和相对路径"""
+    # 尝试多种路径
+    possible_paths = [
+        os.path.join(os.path.dirname(os.path.abspath(__file__)), 'fonts', 'simhei.ttf'),
+        os.path.join(os.getcwd(), 'fonts', 'simhei.ttf'),
+        'fonts/simhei.ttf',
+        './fonts/simhei.ttf',
+    ]
 
-if os.path.exists(font_path):
-    try:
-        # 注册字体到 matplotlib
-        font_prop = fm.FontProperties(fname=font_path)
-        plt.rcParams['font.family'] = font_prop.get_name()
-        plt.rcParams['axes.unicode_minus'] = False
-        print(f"成功加载自定义字体: {font_prop.get_name()}")
-    except Exception as e:
-        print(f"加载自定义字体失败: {e}")
-        # 回退到默认字体
-        plt.rcParams['font.sans-serif'] = ['DejaVu Sans', 'Arial']
-        plt.rcParams['axes.unicode_minus'] = False
-else:
-    print(f"字体文件不存在: {font_path}")
-    # 使用系统默认字体
+    global custom_font_path
+    custom_font_path = None
+    for path in possible_paths:
+        if os.path.exists(path):
+            custom_font_path = path
+            print(f"找到字体文件: {custom_font_path}")
+            break
+
+    if custom_font_path:
+        try:
+            # 添加字体到 matplotlib 的字体管理器
+            fm.fontManager.addfont(custom_font_path)
+            font_prop = fm.FontProperties(fname=custom_font_path)
+            plt.rcParams['font.family'] = font_prop.get_name()
+            plt.rcParams['axes.unicode_minus'] = False
+            print(f"成功加载字体: {font_prop.get_name()}")
+            return font_prop
+        except Exception as e:
+            print(f"加载字体失败: {e}")
+    else:
+        print(f"字体文件未找到，尝试的路径: {possible_paths}")
+
+    # 回退到默认字体
     plt.rcParams['font.sans-serif'] = ['DejaVu Sans', 'Arial']
     plt.rcParams['axes.unicode_minus'] = False
+    print("使用默认字体")
+    return None
+
+# 全局字体属性
+custom_font_path = None
+custom_font = load_custom_font()
 
 
 def generate_top_view_overall(solution, container_type):
@@ -215,7 +236,8 @@ def generate_top_view_overall(solution, container_type):
         ax.text(center_x, center_y + actual_y_width * 0.25,
                display_product_name,
                ha='center', va='center',
-               fontsize=11, fontweight='bold')
+               fontsize=11, fontweight='bold',
+               fontproperties=custom_font)
 
         # 箱数和方向（优化显示）
         display_direction = direction
@@ -235,22 +257,24 @@ def generate_top_view_overall(solution, container_type):
         ax.text(center_x, center_y,
                f"{box_text}\n{display_direction}",
                ha='center', va='center',
-               fontsize=9)
+               fontsize=9,
+               fontproperties=custom_font)
 
         # 尺寸标注
         ax.text(center_x, center_y - actual_y_width * 0.25,
                f"{seg['actual_length']:.1f}cm",
                ha='center', va='center',
-               fontsize=8)
+               fontsize=8,
+               fontproperties=custom_font)
 
         current_x += seg["actual_length"]
 
     # 设置坐标轴
     ax.set_xlim(-30, container["length"] + 30)
     ax.set_ylim(-30, container["width"] + 30)
-    ax.set_xlabel('Length (cm)', fontsize=12)
-    ax.set_ylabel('Width (cm)', fontsize=12)
-    ax.set_title(f'{container_type} - Top View', fontsize=14, fontweight='bold')
+    ax.set_xlabel('Length (cm)', fontsize=12, fontproperties=custom_font)
+    ax.set_ylabel('Width (cm)', fontsize=12, fontproperties=custom_font)
+    ax.set_title(f'{container_type} - Top View', fontsize=14, fontweight='bold', fontproperties=custom_font)
     ax.set_aspect('equal')
     ax.grid(True, alpha=0.3, linestyle='--')
 
@@ -373,21 +397,24 @@ def generate_side_view(solution, container_type):
                product_name,
                ha='center', va='center',
                fontsize=12, fontweight='bold',
-               bbox=dict(boxstyle='round,pad=0.5', facecolor='white', alpha=0.8, edgecolor='black'))
+               bbox=dict(boxstyle='round,pad=0.5', facecolor='white', alpha=0.8, edgecolor='black'),
+               fontproperties=custom_font)
 
         # 箱数
         ax.text(center_x, center_y,
                f"{seg['total_boxes']}箱",
                ha='center', va='center',
                fontsize=10,
-               bbox=dict(boxstyle='round,pad=0.3', facecolor='white', alpha=0.8, edgecolor='black'))
+               bbox=dict(boxstyle='round,pad=0.3', facecolor='white', alpha=0.8, edgecolor='black'),
+               fontproperties=custom_font)
 
         # 尺寸标注
         ax.text(center_x, center_y - seg["height"] * 0.15,
                f"{seg['actual_length']:.1f}×{seg['height']:.1f}cm",
                ha='center', va='center',
                fontsize=9,
-               bbox=dict(boxstyle='round,pad=0.3', facecolor='white', alpha=0.8, edgecolor='black'))
+               bbox=dict(boxstyle='round,pad=0.3', facecolor='white', alpha=0.8, edgecolor='black'),
+               fontproperties=custom_font)
 
         current_x += seg["actual_length"]
 
@@ -400,9 +427,9 @@ def generate_side_view(solution, container_type):
     # 设置坐标轴
     ax.set_xlim(-50, container["length"] + 50)
     ax.set_ylim(-50, container["height"] + 50)
-    ax.set_xlabel('Length (cm)', fontsize=12)
-    ax.set_ylabel('Height (cm)', fontsize=12)
-    ax.set_title(f'{container_type} - Side View', fontsize=14, fontweight='bold')
+    ax.set_xlabel('Length (cm)', fontsize=12, fontproperties=custom_font)
+    ax.set_ylabel('Height (cm)', fontsize=12, fontproperties=custom_font)
+    ax.set_title(f'{container_type} - Side View', fontsize=14, fontweight='bold', fontproperties=custom_font)
     ax.set_aspect('equal')
     ax.grid(True, alpha=0.3, linestyle='--')
 
@@ -581,7 +608,8 @@ def generate_top_view_segment(seg, container_width):
                 xytext=(start_x, start_y),
                 fontsize=11, fontweight='bold', color='black',
                 bbox=dict(boxstyle='round,pad=0.5', facecolor='lightgreen', alpha=0.9, edgecolor='green'),
-                ha='left', va='top')
+                ha='left', va='top',
+                fontproperties=custom_font)
 
     # 方向标注
     if is_mixed_direction:
@@ -598,7 +626,8 @@ def generate_top_view_segment(seg, container_width):
             actual_width / 2, -box_length_max * 0.8,
             display_direction,
             ha='center', va='top', fontsize=10, fontweight='bold', color='red',
-            bbox=dict(boxstyle='round,pad=0.5', facecolor='white', alpha=0.9, edgecolor='red')
+            bbox=dict(boxstyle='round,pad=0.5', facecolor='white', alpha=0.9, edgecolor='red'),
+            fontproperties=custom_font
         )
     elif "长×宽" in direction or "宽×长" in direction:
         arrow_start_x = 0
@@ -611,16 +640,17 @@ def generate_top_view_segment(seg, container_width):
         ax.text(arrow_length/2, arrow_y + box_length_max*0.6,
                f"→ {direction}",
                ha='center', va='bottom', fontsize=10, fontweight='bold', color='red',
-               bbox=dict(boxstyle='round,pad=0.3', facecolor='white', alpha=0.8, edgecolor='red'))
+               bbox=dict(boxstyle='round,pad=0.3', facecolor='white', alpha=0.8, edgecolor='red'),
+               fontproperties=custom_font)
 
     # 设置图形范围 - 横向显示
     ax.set_xlim(-margin_left, actual_width + margin_right)
     ax.set_ylim(-margin_bottom, actual_height + margin_top)
     ax.set_aspect('equal')
     ax.grid(True, alpha=0.3, linestyle='--')
-    ax.set_xlabel('Length Direction (cm)', fontsize=10)
-    ax.set_ylabel('Width Direction (cm)', fontsize=10)
-    ax.set_title(f"{product_name} - Layout (Actual: {boxes_to_draw} boxes, {direction})", fontsize=12, fontweight='bold')
+    ax.set_xlabel('Length Direction (cm)', fontsize=10, fontproperties=custom_font)
+    ax.set_ylabel('Width Direction (cm)', fontsize=10, fontproperties=custom_font)
+    ax.set_title(f"{product_name} - Layout (Actual: {boxes_to_draw} boxes, {direction})", fontsize=12, fontweight='bold', fontproperties=custom_font)
 
     # 添加朝向图例说明
     legend_text = "🔴 Red: Long edge along length (L×W)\n🔵 Blue: Long edge along width (W×L)"
@@ -629,7 +659,8 @@ def generate_top_view_segment(seg, container_width):
         legend_text,
         fontsize=10, fontweight='bold',
         ha='right', va='top',
-        bbox=dict(boxstyle='round,pad=0.8', facecolor='lightyellow', alpha=0.95, edgecolor='orange', linewidth=2)
+        bbox=dict(boxstyle='round,pad=0.8', facecolor='lightyellow', alpha=0.95, edgecolor='orange', linewidth=2),
+        fontproperties=custom_font
     )
 
     # 转换为 BytesIO 对象
