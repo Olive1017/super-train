@@ -11,8 +11,19 @@ import base64
 from io import BytesIO
 from config import CONTAINERS, PRODUCTS, COLORS, get_position_name
 
-# 配置字体 - 支持中文显示
-plt.rcParams['font.sans-serif'] = ['SimHei', 'Microsoft YaHei', 'DejaVu Sans', 'Arial']
+# 配置字体 - 支持中文显示（兼容 Windows 和 Linux）
+# Windows: SimHei, Microsoft YaHei
+# Linux: WenQuanYi Micro Hei, WenQuanYi Zen Hei, Noto Sans CJK
+plt.rcParams['font.sans-serif'] = [
+    'WenQuanYi Micro Hei',  # Linux 常用中文字体
+    'WenQuanYi Zen Hei',    # Linux 常用中文字体
+    'Noto Sans CJK SC',     # Google 开源中文字体
+    'Droid Sans Fallback',  # Android/Linux 备选字体
+    'SimHei',               # Windows 黑体
+    'Microsoft YaHei',      # Windows 微软雅黑
+    'DejaVu Sans',
+    'Arial'
+]
 plt.rcParams['axes.unicode_minus'] = False
 
 
