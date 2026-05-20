@@ -18,10 +18,10 @@ def load_custom_font():
     """加载自定义中文字体，支持绝对路径和相对路径"""
     # 尝试多种路径
     possible_paths = [
-        os.path.join(os.path.dirname(os.path.abspath(__file__)), 'fonts', 'simhei.ttf'),
-        os.path.join(os.getcwd(), 'fonts', 'simhei.ttf'),
-        'fonts/simhei.ttf',
-        './fonts/simhei.ttf',
+        os.path.join(os.path.dirname(os.path.abspath(__file__)), 'fonts', 'SIMHEI.ttf'),
+        os.path.join(os.getcwd(), 'fonts', 'SIMHEI.ttf'),
+        'fonts/SIMHEI.ttf',
+        './fonts/SIMHEI.ttf',
     ]
 
     global custom_font_path
