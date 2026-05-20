@@ -24,8 +24,11 @@ COLORS = {
     "艾考": "#98FB98",    # 浅绿
 }
 
-# 位置映射
-POSITIONS_MAP = {0: "前段", 1: "中段", 2: "后段"}
+# 位置映射（动态生成，不再硬编码前/中/后三段）
+def get_position_name(position):
+    """根据段索引返回位置名称"""
+    return f"第{position + 1}段"
+
 
 # 层数限制（独立装整段时的最大层数）
 LAYER_LIMITS = {

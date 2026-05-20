@@ -9,10 +9,10 @@ import matplotlib.patches as patches
 from matplotlib.patches import Rectangle
 import base64
 from io import BytesIO
-from config import CONTAINERS, PRODUCTS, COLORS, POSITIONS_MAP
+from config import CONTAINERS, PRODUCTS, COLORS, get_position_name
 
-# 配置字体 - 使用英文标签避免云端字体问题
-plt.rcParams['font.sans-serif'] = ['DejaVu Sans', 'Arial']
+# 配置字体 - 支持中文显示
+plt.rcParams['font.sans-serif'] = ['SimHei', 'Microsoft YaHei', 'DejaVu Sans', 'Arial']
 plt.rcParams['axes.unicode_minus'] = False
 
 
@@ -47,9 +47,10 @@ def generate_top_view_overall(solution, container_type):
 
         # 获取段信息
         is_vertical_mixed = "segment_details" in seg and seg["segment_details"]
+        top_product_name = None  # 初始化
 
         if is_vertical_mixed:
-            # 垂直混合段：使用最上层信息
+            # 垂直混合段：使用最上层信息进行绘制
             top_layer = None
             for detail in reversed(seg["segment_details"]):
                 if detail["total_boxes"] > 0:
@@ -57,6 +58,11 @@ def generate_top_view_overall(solution, container_type):
                     break
             if top_layer is None:
                 top_layer = seg["segment_details"][-1]
+
+            # 使用最上层的产品尺寸和颜色
+            top_product_name = top_layer["product_name"]
+            product = PRODUCTS[top_product_name]
+            color = COLORS.get(top_product_name, "#DDA0DD")
 
             rows = top_layer["rows"]
             cols = top_layer["cols"]
@@ -184,15 +190,30 @@ def generate_top_view_overall(solution, container_type):
         center_x = current_x + seg["actual_length"] / 2
         center_y = seg_y_start + actual_y_width / 2
 
-        # 货品名称
+        # 货品名称（对于垂直混合段，显示最上层的产品名称）
+        display_product_name = top_product_name if is_vertical_mixed else product_name
         ax.text(center_x, center_y + actual_y_width * 0.25,
-               product_name,
+               display_product_name,
                ha='center', va='center',
                fontsize=11, fontweight='bold')
 
-        # 箱数和方向
+        # 箱数和方向（优化显示）
+        display_direction = direction
+        if "前1后2" in direction:
+            display_direction = "长×宽→宽×长"
+        elif "前2后1" in direction:
+            display_direction = "宽×长→长×宽"
+        elif "隔行" in direction:
+            display_direction = direction.replace("混合(隔行", "隔行(")
+
+        # 对于垂直混合段，显示总箱数和最上层箱数
+        if is_vertical_mixed:
+            box_text = f"{seg['total_boxes']}箱 (上层{boxes_to_draw}箱)"
+        else:
+            box_text = f"{seg['total_boxes']}箱"
+
         ax.text(center_x, center_y,
-               f"{seg['total_boxes']}箱\n{direction}",
+               f"{box_text}\n{display_direction}",
                ha='center', va='center',
                fontsize=9)
 
@@ -544,11 +565,18 @@ def generate_top_view_segment(seg, container_width):
 
     # 方向标注
     if is_mixed_direction:
-        # 混合方向：显示标注说明
-        direction_text = f"Mixed: {direction}"
+        # 混合方向：显示标注说明（优化显示）
+        display_direction = direction
+        if "前1后2" in direction:
+            display_direction = "混合：长×宽 → 宽×长"
+        elif "前2后1" in direction:
+            display_direction = "混合：宽×长 → 长×宽"
+        elif "隔行" in direction:
+            display_direction = direction.replace("混合(隔行", "混合：隔行(")
+
         ax.text(
             actual_width / 2, -box_length_max * 0.8,
-            direction_text,
+            display_direction,
             ha='center', va='top', fontsize=10, fontweight='bold', color='red',
             bbox=dict(boxstyle='round,pad=0.5', facecolor='white', alpha=0.9, edgecolor='red')
         )
@@ -619,7 +647,7 @@ def generate_summary_table(solution):
 
     current_pos = 0
     for seg in segments:
-        position_name = POSITIONS_MAP.get(seg["position"], f"段{seg['position']}")
+        position_name = get_position_name(seg["position"])
 
         # 摆放信息
         if "segment_details" in seg and seg["segment_details"]:
@@ -629,9 +657,16 @@ def generate_summary_table(solution):
                 for d in seg["segment_details"]
                 if d["total_boxes"] > 0
             ])
-            placement = f"垂直混合({layers_info})"
+            placement = f"垂直混合（{layers_info}）"
         else:
-            placement = f"{seg['rows']}行×{seg['cols']}列"
+            display_direction = seg['direction']
+            if "混合：长×宽→宽×长" in display_direction:
+                display_direction = "混合"
+            elif "混合：宽×长→长×宽" in display_direction:
+                display_direction = "混合"
+            elif "混合：隔行" in display_direction:
+                display_direction = "混合"
+            placement = f"{seg['rows']}行×{seg['cols']}列（{display_direction}）"
 
         html += f"""
             <tr>
@@ -654,42 +689,7 @@ def generate_summary_table(solution):
     return html
 
 
-def generate_worker_steps(solution, container_type):
-    """
-    生成简洁的工人操作步骤
-    按段分步骤，每步包含关键信息
-    """
-    container = CONTAINERS[container_type]
-    segments = sorted(solution["segments"], key=lambda x: x["position"])
 
-    steps = []
-    current_pos = 0
-
-    for i, seg in enumerate(segments):
-        position_name = POSITIONS_MAP.get(seg["position"], f"段{seg['position']}")
-
-        step = {
-            "step_num": i + 1,
-            "position": position_name,
-            "product": seg["name"],
-            "boxes": seg["total_boxes"],
-            "start_pos": current_pos,
-            "end_pos": current_pos + seg["actual_length"],
-            "length": seg["actual_length"],
-            "height": seg["height"],
-            "layers": seg["layers"],
-            "direction": seg["direction"],
-            "rows": seg["rows"],
-            "cols": seg["cols"],
-            "mixed_layout": seg.get("mixed_layout"),
-            "is_vertical_mixed": "segment_details" in seg and seg["segment_details"],
-            "segment_details": seg.get("segment_details", [])
-        }
-
-        steps.append(step)
-        current_pos += seg["actual_length"]
-
-    return steps
 
 
 def display_visualization_simple(solution, container_type):
@@ -730,96 +730,7 @@ def display_visualization_simple(solution, container_type):
 
     st.divider()
 
-    # 3. 逐段操作指南
-    st.markdown("### 👷 装箱操作步骤")
-
-    steps = generate_worker_steps(solution, container_type)
-
-    for step in steps:
-        # 跳过0箱的步骤
-        if step["boxes"] == 0:
-            continue
-
-        with st.expander(
-            f"步骤 {step['step_num']}: {step['position']} - {step['product']} "
-            f"({step['boxes']}箱)",
-            expanded=True
-        ):
-            # 基本信息
-            col1, col2, col3 = st.columns(3)
-
-            with col1:
-                st.markdown(f"**起始**: {step['start_pos']:.1f} cm")
-                st.markdown(f"**结束**: {step['end_pos']:.1f} cm")
-
-            with col2:
-                st.markdown(f"**长度**: {step['length']:.1f} cm")
-                st.markdown(f"**高度**: {step['height']:.1f} cm")
-
-            with col3:
-                st.markdown(f"**摆放**: {step['rows']}×{step['cols']}")
-                st.markdown(f"**层数**: {step['layers']}")
-
-            # 垂直混合段：显示层级信息
-            if step["is_vertical_mixed"]:
-                st.info("📌 垂直混合段：按以下顺序分层装载")
-                for detail in step["segment_details"]:
-                    if detail["total_boxes"] > 0:
-                        st.markdown(f"""
-                        **第 {detail['layer_index'] + 1} 层（{detail['product_name']}）**:
-                        - 摆放方向：{detail['direction']}
-                        - 堆叠 {detail['layers']} 层
-                        - 该层总箱数：{detail['total_boxes']} × {detail['layers']} = {detail['total_boxes'] * detail['layers']} 箱
-                        """)
-            else:
-                # 普通段：检查是否铺满
-                capacity = int(step["rows"]) * int(step["cols"]) * int(step["layers"])
-                if step["boxes"] < capacity:
-                    st.warning(f"⚠️ 注意：该段容量为 {capacity} 箱，实际只装 {step['boxes']} 箱，最上层未铺满")
-
-    st.divider()
-
-    # 4. 下载文本指南
-    st.markdown("### 📥 下载指南")
-
-    text_guide = generate_text_guide(solution, container_type)
-    b64 = base64.b64encode(text_guide.encode()).decode()
-    href = f'<a href="data:file/txt;base64,{b64}" download="装箱指南.txt" ' \
-           f'style="color: #4CAF50; text-decoration: none; font-weight: bold; font-size: 16px;">' \
-           f'📄 点击下载文本版装箱指南</a>'
-    st.markdown(href, unsafe_allow_html=True)
 
 
-def generate_text_guide(solution, container_type):
-    """生成文本版指南"""
-    container = CONTAINERS[container_type]
-    steps = generate_worker_steps(solution, container_type)
 
-    text = f"""
-{'='*60}
-装箱操作指南 - {container_type}
-{'='*60}
 
-总装载箱数: {solution['total_loaded']}
-{'='*60}
-
-"""
-    for step in steps:
-        # 跳过0箱的步骤
-        if step["boxes"] == 0:
-            continue
-
-        text += f"""
-步骤 {step['step_num']}: {step['position']} - {step['product']}
-{'-'*60}
-起始位置: {step['start_pos']:.1f} cm
-结束位置: {step['end_pos']:.1f} cm
-占用长度: {step['length']:.1f} cm
-堆叠高度: {step['height']:.1f} cm ({step['layers']}层)
-摆放方式: {step['rows']}行 × {step['cols']}列
-总箱数: {step['boxes']}箱
-"""
-
-    text += f"\n{'='*60}\n安全提示:\n1. 装载前检查柜子内部\n2. 确保货品包装完好\n3. 保持重量平衡\n4. 每层检查平整度\n5. 最后检查顶部空隙\n{'='*60}\n"
-
-    return text

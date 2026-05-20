@@ -3,8 +3,8 @@ UI 展示模块 - 显示装箱结果
 """
 
 import streamlit as st
-from config import CONTAINERS, POSITIONS_MAP
-from visualizer import display_visualization_simple, generate_text_guide
+from config import CONTAINERS, get_position_name
+from visualizer import display_visualization_simple
 import base64
 
 
@@ -47,27 +47,20 @@ def display_solution_summary(solution, container_type):
         st.metric("总装载量", f"{solution['total_loaded']} 箱")
 
     with col2:
-        # 显示相邻段高度差
+        # 显示相邻段高度差（仅供参考）
         max_adjacent_diff = solution.get("max_adjacent_height_diff", 0)
-
-        # 检查是否满足硬约束（≤20cm）
-        if max_adjacent_diff <= 20:
-            status = "✓ 满足约束"
-        else:
-            status = "✗ 超出约束"
-
-        st.metric("高度差", f"{max_adjacent_diff:.1f} cm", delta=status)
+        st.metric("高度差", f"{max_adjacent_diff:.1f} cm", delta="参考值")
         st.metric("空间利用率", f"{volume_utilization:.1f}%")
 
     with col3:
         st.write("各段高度:")
         for segment in _sort_segments(solution):
-            st.write(f"• {POSITIONS_MAP[segment['position']]}: {segment['height']:.1f}cm ({segment['layers']}层)")
+            st.write(f"• {get_position_name(segment['position'])}: {segment['height']:.1f}cm ({segment['layers']}层)")
 
     with col4:
         st.write("各段装载:")
         for segment in _sort_segments(solution):
-            st.write(f"• {POSITIONS_MAP[segment['position']]}: {segment['total_boxes']}箱 {segment['name']}")
+            st.write(f"• {get_position_name(segment['position'])}: {segment['total_boxes']}箱 {segment['name']}")
             if "混合" in segment["direction"] or "垂直" in segment["direction"]:
                 st.caption(f"  └─ {segment['direction']}")
 
@@ -99,14 +92,42 @@ def display_detailed_plan(solution):
 
     data = []
     for segment in _sort_segments(solution):
+        # 处理垂直混合段的详细信息
+        is_vertical_mixed = "segment_details" in segment and segment["segment_details"]
+
+        if is_vertical_mixed:
+            # 垂直混合段：显示分层布局
+            layers_info = []
+            layout_details = []
+            for detail in segment["segment_details"]:
+                if detail["total_boxes"] > 0:
+                    layer_desc = f"{detail['product_name']}×{detail['layers']}层"
+                    layers_info.append(layer_desc)
+
+                    # 获取每层的方向
+                    layer_dir = detail.get("direction", "无")
+
+                    layout_details.append(
+                        f"{detail['product_name']} {detail['rows']}行×{detail['cols']}列 ({layer_dir})"
+                    )
+
+            # 将信息合并显示，使用分号分隔
+            if layout_details:
+                placement = f"垂直混合：{', '.join(layers_info)}； {'； '.join(layout_details)}"
+            else:
+                placement = f"垂直混合：{', '.join(layers_info)}"
+        else:
+            # 非垂直混合段
+            placement = f"{segment['rows']}行×{segment['cols']}列 ({segment['direction']})"
+
         data.append({
-            "位置": POSITIONS_MAP[segment['position']],
+            "位置": get_position_name(segment['position']),
             "货品": segment['name'],
             "箱数": segment['total_boxes'],
             "层数": segment['layers'],
             "高度(cm)": segment['height'],
             "长度(cm)": segment['actual_length'],
-            "摆放方式": f"{segment['rows']}行 × {segment['cols']}列 ({segment['direction']})"
+            "摆放方式": placement
         })
 
     st.dataframe(data, use_container_width=True)
