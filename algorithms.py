@@ -337,17 +337,21 @@ def find_optimal_allocation(layout, product_quantities, container):
                     boxes_per_layer = math.ceil(layer_quantity / layers)
 
                     # 调用 calculate_compact_layout 计算实际布局
-                    # 注意：这里传入的是 layer_height（单层高度），而不是整个段的高度
-                    # 这样 calculate_compact_layout 会正确计算每层的布局
+                    # 修复：传入单层高度，而不是多层高度，这样返回的是单层的布局信息
+                    single_layer_height = PRODUCTS[layer_name]["height"]
                     boxes_info = calculate_compact_layout(
-                        layer_quantity, container_width, layer_height, layer_name
+                        boxes_per_layer, container_width, single_layer_height, layer_name
                     )
 
                     # 检查是否成功装载
                     if boxes_info["total_boxes"] > 0:
                         segment_length = max(segment_length, boxes_info["actual_length"])
-                        segment_boxes += boxes_info["total_boxes"]
-                        remaining_quantities[layer_name] = layer_quantity - boxes_info["total_boxes"]
+                        # 修复：计算实际装载的箱数（所有层的总和）
+                        actual_boxes_loaded = boxes_info["total_boxes"] * layers
+                        # 但不能超过剩余数量
+                        actual_boxes_loaded = min(actual_boxes_loaded, layer_quantity)
+                        segment_boxes += actual_boxes_loaded
+                        remaining_quantities[layer_name] = layer_quantity - actual_boxes_loaded
                         segment_details.append({
                             "layer_index": layer_idx,
                             "product_name": layer_name,
@@ -355,7 +359,7 @@ def find_optimal_allocation(layout, product_quantities, container):
                             "height": layer_height,
                             "rows": boxes_info["rows"],
                             "cols": boxes_info["cols"],
-                            "total_boxes": boxes_info["total_boxes"],
+                            "total_boxes": boxes_info["total_boxes"],  # 单层箱数
                             "direction": boxes_info["direction"],
                             "mixed_layout": boxes_info.get("mixed_layout"),
                             "actual_length": boxes_info["actual_length"]
