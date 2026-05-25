@@ -1,99 +1,120 @@
 """
-万益特货品装箱计算器 - Streamlit 主程序
+万益特混箱装柜 - Streamlit 主程序
 """
 
 import streamlit as st
-from config import PRODUCTS, CONTAINERS
-from algorithms import calculate_loading_plan
-from ui import display_solution_summary, display_detailed_plan, display_visualization_simple
+import traceback
+from config import CONTAINERS
+from packing import pack
+from visualization import (
+    render_side_view,
+    render_top_view,
+    render_3d_view,
+    generate_worker_guide,
+)
+from ui import (
+    render_header,
+    render_sidebar,
+    render_empty_state,
+    render_container_info,
+    render_summary,
+    render_segment_table,
+)
 
 
 def main():
-    st.set_page_config(
-        page_title="万益特货品装箱计算器",
-        page_icon="📦",
-        layout="wide",
-        initial_sidebar_state="expanded"
-    )
+    render_header()
 
-    st.title("🚚 万益特货品装箱计算器")
+    # 初始化 session_state
+    if "result" not in st.session_state:
+        st.session_state["result"] = None
+    if "container_name" not in st.session_state:
+        st.session_state["container_name"] = None
+    if "should_calculate" not in st.session_state:
+        st.session_state["should_calculate"] = False
+
+    # 渲染侧边栏
+    container_name, orders, error_msg = render_sidebar()
+
+    # 🚚 标题 + 副标题
     st.markdown("---")
 
-    # 侧边栏参数输入
-    with st.sidebar:
-        st.header("📝 参数设置")
+    # 检查是否需要计算
+    if st.session_state["should_calculate"] and not error_msg:
+        # 执行计算
+        container = CONTAINERS[container_name]
 
-        # 柜型选择
-        container_type = st.selectbox(
-            "选择柜型",
-            list(CONTAINERS.keys()),
-            index=0
-        )
+        # 默认权重
+        w1, w2, w3 = 1.0, 0.5, 0.2
 
+        try:
+            result = pack("", orders, container_name, w1, w2, w3)
+            st.session_state["result"] = result
+            st.session_state["container_name"] = container_name
+        except ValueError as e:
+            st.session_state["error_message"] = f"❌ 无可行方案: {e}"
+            st.session_state["result"] = None
+        except Exception as e:
+            st.session_state["error_message"] = f"❌ 算法异常: {e}"
+            st.session_state["result"] = None
+
+        st.session_state["should_calculate"] = False
+        st.rerun()
+
+    # 判断是否已计算
+    has_result = st.session_state["result"] is not None
+
+    if not has_result:
+        # 未计算时：显示友好空状态
+        render_empty_state()
+    else:
+        # 已计算时：显示完整结果
+        result = st.session_state["result"]
+        current_container_name = st.session_state["container_name"]
+        container = CONTAINERS[current_container_name]
+
+        # 柜型信息卡片
+        st.markdown("---")
+        render_container_info(current_container_name)
+
+        # ✅ 找到最优方案 提示条
+        st.markdown("---")
+        st.success("✅ 找到最优方案")
+
+        # 4 个指标卡
+        render_summary(result)
+
+        # 📦 段方案明细 表格
+        st.subheader("📊 段方案明细")
+        render_segment_table(result)
+
+        # 4 个 tab (侧视图 / 俯视图 / 3D / 工人指南)
         st.divider()
+        tab_side, tab_top, tab_3d, tab_guide = st.tabs([
+            "📐 侧视图", "🗺️ 俯视图（按层）", "🎮 3D 视图", "📋 工人指南"
+        ])
 
-        # 货品数量输入
-        st.subheader("货品数量（箱）")
-        product_quantities = {}
+        with tab_side:
+            fig = render_side_view(result, current_container_name)
+            st.pyplot(fig, use_container_width=True)
 
-        for product_name in PRODUCTS.keys():
-            quantity = st.number_input(
-                f"{product_name}",
-                min_value=0,
-                max_value=10000,
-                value=0,
-                step=10,
-                help=f"规格: {PRODUCTS[product_name]['length']}×{PRODUCTS[product_name]['width']}×{PRODUCTS[product_name]['height']}cm"
+        with tab_top:
+            fig = render_top_view(result, current_container_name)
+            st.pyplot(fig, use_container_width=True)
+
+        with tab_3d:
+            fig = render_3d_view(result, current_container_name)
+            st.plotly_chart(fig, use_container_width=True)
+
+        with tab_guide:
+            guide_text = generate_worker_guide(result, current_container_name)
+            st.text(guide_text)
+            st.download_button(
+                "💾 下载操作指南 (.txt)",
+                guide_text,
+                file_name=f"装柜指南_{current_container_name}.txt",
+                mime="text/plain",
             )
-            product_quantities[product_name] = quantity
-
-        st.divider()
-
-        # 计算按钮
-        calculate = st.button("🔢 计算装箱方案", type="primary", use_container_width=True)
-
-    # 显示柜子信息
-    col1, col2, col3, col4 = st.columns(4)
-    container = CONTAINERS[container_type]
-
-    with col1:
-        st.metric("柜型", container_type)
-    with col2:
-        st.metric("内长", f"{container['length']} cm")
-    with col3:
-        st.metric("内宽", f"{container['width']} cm")
-    with col4:
-        st.metric("内高", f"{container['height']} cm")
-
-    st.markdown("---")
-
-    # 计算并显示结果
-    if calculate:
-        used_products = sum(1 for q in product_quantities.values() if q > 0)
-
-        if used_products == 0:
-            st.warning("⚠️ 请至少选择一种货品")
-        elif used_products > 3:
-            st.error("❌ 最多支持3种货品混装")
-        else:
-            with st.spinner("正在计算最优装箱方案..."):
-                solution = calculate_loading_plan(container_type, product_quantities)
-
-            if solution is None:
-                st.error("❌ 无法找到合适的装箱方案")
-            elif "error" in solution:
-                st.error(f"❌ {solution['error']}")
-            else:
-                # 显示结果摘要
-                display_solution_summary(solution, container_type)
-                display_detailed_plan(solution)
-
-                # 简洁版可视化
-                st.divider()
-                st.subheader("📐 可视化查看")
-                display_visualization_simple(solution, container_type)
-                st.divider()
-
 
 
 if __name__ == "__main__":

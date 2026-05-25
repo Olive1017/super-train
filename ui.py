@@ -1,134 +1,182 @@
 """
-UI 展示模块 - 显示装箱结果
+UI 组件函数 - 无副作用，只返回用户输入
 """
 
+import math
 import streamlit as st
-from config import CONTAINERS, get_position_name
-from visualizer import display_visualization_simple
-import base64
+import pandas as pd
+from config import PRODUCTS, CONTAINERS
 
 
-def _sort_segments(solution):
-    """按位置排序 segments"""
-    return sorted(solution["segments"], key=lambda x: x["position"])
-
-
-def _format_direction(direction):
-    """格式化方向字符串"""
-    return direction
-
-
-def display_solution_summary(solution, container_type):
-    """
-    显示装箱方案摘要
-    """
-    st.subheader("📊 装箱方案摘要")
-
-    # 显示布局信息
-    layout = solution.get("layout", [])
-    if layout:
-        layout_str = " → ".join([p if p else "空" for p in layout])
-        st.info(f"🎯 布局方案: {layout_str}")
-
-    container = CONTAINERS[container_type]
-
-    # 计算空间利用率
-    total_volume = sum(
-        seg["actual_length"] * seg["width"] * seg["height"]
-        for seg in solution["segments"]
+def render_header() -> None:
+    """渲染页面标题和简介"""
+    st.set_page_config(
+        page_title="万益特混箱装柜",
+        page_icon="📦",
+        layout="wide"
     )
-    container_volume = container["length"] * container["width"] * container["height"]
-    volume_utilization = (total_volume / container_volume) * 100
+    st.title("🚚 万益特混箱装柜")
+    st.caption("多产品混装拼柜方案优化 · 单订单一柜")
 
+
+def render_sidebar() -> tuple[str, dict[str, int], str]:
+    """
+    渲染侧边栏，返回 (柜型名, 订单输入, 错误信息)
+    """
+    # 初始化 session_state
+    if "error_message" not in st.session_state:
+        st.session_state["error_message"] = ""
+
+    # 📦 参数设置
+    st.sidebar.header("📦 参数设置")
+    container_name = st.sidebar.selectbox(
+        "柜型",
+        list(CONTAINERS.keys()),
+        index=2  # 默认 40尺海运
+    )
+
+    # 📋 订单输入
+    st.sidebar.subheader("📋 订单输入")
+
+    # 使用 session_state 保存输入值
+    if "orders_input" not in st.session_state:
+        st.session_state["orders_input"] = {"5L": 0, "2L": 0, "艾考": 0}
+
+    orders = {}
+    for ptype in PRODUCTS.keys():
+        qty = st.sidebar.number_input(
+            f"{ptype}",
+            min_value=0,
+            max_value=10000,
+            value=st.session_state["orders_input"][ptype],
+            step=10,
+            key=f"order_{ptype}"
+        )
+        orders[ptype] = qty
+
+    # 更新 session_state 中的输入值
+    st.session_state["orders_input"] = orders
+
+    st.sidebar.divider()
+
+    # 🚀 计算装柜方案 按钮
+    if st.sidebar.button("🚀 计算装柜方案", type="primary"):
+        st.session_state["error_message"] = ""
+
+        # 验证订单
+        if all(qty == 0 for qty in orders.values()):
+            st.session_state["error_message"] = "❌ 请至少输入一个品类的箱数"
+            return container_name, orders, st.session_state["error_message"]
+
+        # 触发计算
+        st.session_state["should_calculate"] = True
+        st.rerun()
+
+    # 🔄 重置 按钮
+    if st.sidebar.button("🔄 重置", type="secondary"):
+        st.session_state["result"] = None
+        st.session_state["container_name"] = None
+        st.session_state["should_calculate"] = False
+        st.session_state["error_message"] = ""
+        st.session_state["orders_input"] = {"5L": 0, "2L": 0, "艾考": 0}
+        st.rerun()
+
+    # 显示错误信息（如果有）
+    if st.session_state["error_message"]:
+        st.sidebar.error(st.session_state["error_message"])
+
+    return container_name, orders, st.session_state["error_message"]
+
+
+def render_empty_state() -> None:
+    """渲染友好空状态"""
+    st.markdown(
+        """
+        <div style="text-align: center; padding: 80px 20px;">
+            <h1 style="color: #888; font-size: 48px;">👈</h1>
+            <p style="color: #666; font-size: 20px; margin-top: 20px;">
+                请在左侧输入订单箱数，点击「计算装柜方案」
+            </p>
+        </div>
+        """,
+        unsafe_allow_html=True
+    )
+
+
+def render_container_info(container_name: str) -> None:
+    """渲染柜型信息卡片"""
+    container = CONTAINERS[container_name]
+    volume = container['length'] * container['width'] * container['height'] / 1000000
+
+    st.info(
+        f"**柜型**: {container_name}  |  "
+        f"**内尺寸**: {container['length']}×{container['width']}×{container['height']} cm  |  "
+        f"**内体积**: {volume:.2f} m³"
+    )
+
+
+def render_summary(result) -> None:
+    """渲染顶部 4 个指标卡片"""
     col1, col2, col3, col4 = st.columns(4)
 
     with col1:
-        st.metric("柜型", container_type)
-        st.metric("总装载量", f"{solution['total_loaded']} 箱")
+        st.metric(
+            "长度利用率",
+            f"{result.utilization * 100:.1f}%"
+        )
 
     with col2:
-        # 显示相邻段高度差（仅供参考）
-        max_adjacent_diff = solution.get("max_adjacent_height_diff", 0)
-        st.metric("高度差", f"{max_adjacent_diff:.1f} cm", delta="参考值")
-        st.metric("空间利用率", f"{volume_utilization:.1f}%")
+        st.metric(
+            "段数",
+            len(result.segments)
+        )
 
     with col3:
-        st.write("各段高度:")
-        for segment in _sort_segments(solution):
-            st.write(f"• {get_position_name(segment['position'])}: {segment['height']:.1f}cm ({segment['layers']}层)")
+        st.metric(
+            "高度差",
+            f"{result.height_variance:.1f} cm"
+        )
 
     with col4:
-        st.write("各段装载:")
-        for segment in _sort_segments(solution):
-            st.write(f"• {get_position_name(segment['position'])}: {segment['total_boxes']}箱 {segment['name']}")
-            if "混合" in segment["direction"] or "垂直" in segment["direction"]:
-                st.caption(f"  └─ {segment['direction']}")
-
-    # 显示重量中心信息
-    if "weight_center" in solution:
-        weight_center = solution["weight_center"]
-        weight_deviation = solution["weight_deviation"]
-        container_center = container["length"] / 2
-
-        st.divider()
-        st.subheader("⚖️ 重量中心分析")
-        col1, col2, col3 = st.columns(3)
-
-        with col1:
-            st.metric("重量中心位置", f"{weight_center:.1f} cm")
-        with col2:
-            st.metric("柜子中点", f"{container_center:.1f} cm")
-        with col3:
-            st.metric("偏差", f"{weight_deviation:.1f} cm")
-
-    st.divider()
+        st.metric(
+            "综合评分",
+            f"{result.score:.4f}"
+        )
 
 
-def display_detailed_plan(solution):
-    """
-    显示详细的装箱计划表格
-    """
-    st.subheader("📋 详细装箱计划")
+def render_segment_table(result) -> None:
+    """渲染段汇总表格"""
+    rows = []
 
-    data = []
-    for segment in _sort_segments(solution):
-        # 处理垂直混合段的详细信息
-        is_vertical_mixed = "segment_details" in segment and segment["segment_details"]
+    for i, seg in enumerate(result.segments, 1):
+        if seg.type == "pure":
+            rows.append({
+                "段号": i,
+                "类型": "纯段",
+                "品类": seg.ptype,
+                "朝向": "旋转" if seg.orientation == "rotated" else "正向",
+                "排×列×层": f"{seg.rows}×{seg.cols}×{seg.actual_layers}",
+                "箱数": seg.qty,
+                "段长(cm)": round(seg.seg_length, 1),
+                "段高(cm)": round(seg.total_height, 1),
+            })
+        else:  # shared
+            rows.append({
+                "段号": i,
+                "类型": "共享段",
+                "品类": f"{seg.base_ptype}+5L",
+                "朝向": "—",
+                "排×列×层": (
+                    f"底{math.ceil(seg.seg_length / seg.way_base.row_depth)}×{seg.way_base.cols}×2 / "
+                    f"上{math.ceil(seg.seg_length / seg.way_5L.row_depth)}×{seg.way_5L.cols}×{seg.layers_5L}"
+                ),
+                "箱数": f"{seg.qty_base}+{seg.qty_5L}",
+                "段长(cm)": round(seg.seg_length, 1),
+                "段高(cm)": round(seg.total_height, 1),
+            })
 
-        if is_vertical_mixed:
-            # 垂直混合段：显示分层布局
-            layers_info = []
-            layout_details = []
-            for detail in segment["segment_details"]:
-                if detail["total_boxes"] > 0:
-                    layer_desc = f"{detail['product_name']}×{detail['layers']}层"
-                    layers_info.append(layer_desc)
-
-                    # 获取每层的方向
-                    layer_dir = detail.get("direction", "无")
-
-                    layout_details.append(
-                        f"{detail['product_name']} {detail['rows']}行×{detail['cols']}列 ({layer_dir})"
-                    )
-
-            # 将信息合并显示，使用分号分隔
-            if layout_details:
-                placement = f"垂直混合：{', '.join(layers_info)}； {'； '.join(layout_details)}"
-            else:
-                placement = f"垂直混合：{', '.join(layers_info)}"
-        else:
-            # 非垂直混合段
-            placement = f"{segment['rows']}行×{segment['cols']}列 ({segment['direction']})"
-
-        data.append({
-            "位置": get_position_name(segment['position']),
-            "货品": segment['name'],
-            "箱数": segment['total_boxes'],
-            "层数": segment['layers'],
-            "高度(cm)": segment['height'],
-            "长度(cm)": segment['actual_length'],
-            "摆放方式": placement
-        })
-
-    st.dataframe(data, use_container_width=True)
-
+    st.dataframe(
+        pd.DataFrame(rows),
+        hide_index=True,
+        use_container_width=True
+    )
