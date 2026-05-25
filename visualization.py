@@ -57,6 +57,7 @@ def render_side_view(result: PackingResult, container: str):
                     ax.add_patch(Rectangle((current_x + row_idx * box_length, y_pos), box_length, layer_height,
                                            edgecolor='black', facecolor=color, alpha=0.8))
 
+
             # 尾层：逐 row 绘制，空 row 留白
             if remainder > 0:
                 y_pos = full_layers * layer_height
@@ -104,6 +105,7 @@ def render_side_view(result: PackingResult, container: str):
                     ax.add_patch(Rectangle((current_x + row_idx * fiveL_box_length, y_pos), fiveL_box_length, seg.way_5L.box_height,
                                            edgecolor='black', facecolor=COLORS["5L"], alpha=0.8))
 
+
             # 5L 尾层
             if remainder_5L > 0:
                 y_pos = base_height + full_layers_5L * seg.way_5L.box_height
@@ -147,11 +149,10 @@ def render_side_view(result: PackingResult, container: str):
         current_x += seg.seg_length
 
     # 柜门方向标识
-    ax.annotate('🚪 柜门 →',
-                xy=(container_L, container_H / 2),
-                xytext=(container_L + 10, container_H / 2),
-                ha='left', va='center', fontsize=10, color='#666',
-                arrowprops=dict(arrowstyle='->', color='#666', lw=1.5))
+    ax.arrow(container_L + 2, container_H / 2, 8, 0,
+             head_width=3, head_length=5, fc='#666', ec='#666', lw=1.5)
+    ax.text(container_L + 12, container_H / 2, '柜门',
+            ha='left', va='center', fontsize=10, color='#666')
 
     ax.set_xlim(0, container_L)
     ax.set_ylim(0, container_H + 10)
@@ -251,83 +252,124 @@ def render_3d_view(result: PackingResult, container: str):
     """3D视图"""
     container_spec = CONTAINERS[container]
     fig = go.Figure()
-    boxes = []
-    current_x = 0
 
-    for seg_idx, seg in enumerate(result.segments, 1):
-        if seg.type == "pure":
-            product = PRODUCTS[seg.ptype]
-            box_length = product["depth"] if seg.orientation == "normal" else product["width"]
-            box_width = product["width"] if seg.orientation == "normal" else product["depth"]
-            color = COLORS[seg.ptype]
-            per_layer = seg.per_layer
-            full_layers = seg.qty // per_layer
-            remainder = seg.qty - full_layers * per_layer
-            tail_full_rows = remainder // seg.cols
-            tail_last_cols = remainder - tail_full_rows * seg.cols
-            box_height = seg.total_height / seg.actual_layers
+    L, W, H = container_spec["length"], container_spec["width"], container_spec["height"]
 
-            for layer_idx in range(full_layers):
-                for row in range(seg.rows):
-                    for col in range(seg.cols):
-                        boxes.append({'x': current_x + row * box_length, 'y': col * box_width, 'z': layer_idx * box_height,
-                                     'dx': box_length, 'dy': box_width, 'dz': box_height, 'color': color, 'type': seg.ptype, 'seg': seg_idx, 'layer': layer_idx + 1})
-
-            if remainder > 0:
-                for row in range(tail_full_rows):
-                    for col in range(seg.cols):
-                        boxes.append({'x': current_x + row * box_length, 'y': col * box_width, 'z': full_layers * box_height,
-                                     'dx': box_length, 'dy': box_width, 'dz': box_height, 'color': color, 'type': seg.ptype, 'seg': seg_idx, 'layer': full_layers + 1})
-                if tail_last_cols > 0:
-                    for col in range(tail_last_cols):
-                        boxes.append({'x': current_x + tail_full_rows * box_length, 'y': col * box_width, 'z': full_layers * box_height,
-                                     'dx': box_length, 'dy': box_width, 'dz': box_height, 'color': color, 'type': seg.ptype, 'seg': seg_idx, 'layer': full_layers + 1})
-
-        elif seg.type == "shared":
-            base_product = PRODUCTS[seg.base_ptype]
-            fiveL_product = PRODUCTS["5L"]
-            base_box_length = base_product["depth"] if seg.way_base.orientation == "normal" else base_product["width"]
-            base_box_width = base_product["width"] if seg.way_base.orientation == "normal" else base_product["depth"]
-            fiveL_box_length = fiveL_product["depth"] if seg.way_5L.orientation == "normal" else fiveL_product["width"]
-            fiveL_box_width = fiveL_product["width"] if seg.way_5L.orientation == "normal" else fiveL_product["depth"]
-
-            rows_base = math.ceil(seg.seg_length / seg.way_base.row_depth)
-            rows_5L = math.ceil(seg.seg_length / seg.way_5L.row_depth)
-
-            for layer_idx in range(2):
-                for row in range(rows_base):
-                    for col in range(seg.way_base.cols):
-                        boxes.append({'x': current_x + row * base_box_length, 'y': col * base_box_width, 'z': layer_idx * seg.way_base.box_height,
-                                     'dx': base_box_length, 'dy': base_box_width, 'dz': seg.way_base.box_height, 'color': COLORS[seg.base_ptype], 'type': seg.base_ptype, 'seg': seg_idx, 'layer': layer_idx + 1})
-
-            base_height = 2 * seg.way_base.box_height
-            for layer_idx in range(seg.layers_5L):
-                for row in range(rows_5L):
-                    for col in range(seg.way_5L.cols):
-                        boxes.append({'x': current_x + row * fiveL_box_length, 'y': col * fiveL_box_width, 'z': base_height + layer_idx * seg.way_5L.box_height,
-                                     'dx': fiveL_box_length, 'dy': fiveL_box_width, 'dz': seg.way_5L.box_height, 'color': COLORS["5L"], 'type': "5L", 'seg': seg_idx, 'layer': layer_idx + 1})
-
-        current_x += seg.seg_length
-
-    # 绘制所有箱子
-    for box in boxes:
-        x0, y0, z0 = box['x'], box['y'], box['z']
-        x1, y1, z1 = x0 + box['dx'], y0 + box['dy'], z0 + box['dz']
-        fig.add_trace(go.Mesh3d(
-            x=[x0, x1, x1, x0, x0, x0, x1, x1, x0, x0, x0, x1, x1, x0, x0],
-            y=[y0, y0, y1, y1, y0, y0, y0, y1, y1, y0, y0, y0, y1, y1, y0],
-            z=[z0, z0, z0, z0, z0, z1, z1, z1, z1, z1, z1, z1, z1, z1, z1],
-            i=[0, 1, 2, 0, 3, 2, 4, 5, 6, 4, 7, 6],
-            j=[1, 5, 6, 2, 0, 4, 5, 9, 10, 6, 8, 11],
-            k=[4, 8, 9, 6, 7, 5, 6, 10, 11, 7, 11, 10],
-            opacity=0.8, color=box['color'],
-            name=f"{box['type']} 段{box['seg']} 层{box['layer']}",
-            hovertext=f"品类: {box['type']}<br>段号: {box['seg']}<br>层号: {box['layer']}"
+    # 绘制容器线框（12条棱）
+    edges = [
+        # 底面4条棱
+        ([0, 0], [0, 0], [0, 0]),
+        ([L, L], [0, 0], [0, 0]),
+        ([0, 0], [W, W], [0, 0]),
+        ([L, L], [W, W], [0, 0]),
+        # 顶面4条棱
+        ([0, 0], [0, 0], [H, H]),
+        ([L, L], [0, 0], [H, H]),
+        ([0, 0], [W, W], [H, H]),
+        ([L, L], [W, W], [H, H]),
+        # 垂直4条棱
+        ([0, 0], [0, 0], [0, H]),
+        ([L, L], [0, 0], [0, H]),
+        ([0, 0], [W, W], [0, H]),
+        ([L, L], [W, W], [0, H]),
+    ]
+    for edge in edges:
+        fig.add_trace(go.Scatter3d(
+            x=edge[0], y=edge[1], z=edge[2],
+            mode="lines",
+            line=dict(color="#333", width=2),
+            showlegend=False,
+            hoverinfo="skip"
         ))
 
-    fig.update_layout(scene=dict(aspectmode='data',
-                                  xaxis_title='柜长(cm)', yaxis_title='柜宽(cm)', zaxis_title='柜高(cm)'),
-                     title='3D 装柜视图')
+    # 辅助函数：计算箱子在宽度方向的尺寸
+    def get_box_width_along_W(ptype: str, orientation: str) -> float:
+        product = PRODUCTS[ptype]
+        return product["width"] if orientation == "normal" else product["depth"]
+
+    # 辅助函数：绘制长方体
+    def add_box(x: float, y: float, z: float, dx: float, dy: float, dz: float, color: str, hovertext: str):
+        fig.add_trace(go.Mesh3d(
+            x=[x, x+dx, x+dx, x, x, x, x+dx, x+dx],
+            y=[y, y, y+dy, y+dy, y, y, y, y+dy],
+            z=[z, z, z, z, z+dz, z+dz, z+dz, z+dz],
+            i=[7, 0, 0, 0, 4, 4, 2, 6, 4, 0, 3, 7],
+            j=[3, 4, 1, 2, 5, 6, 5, 5, 0, 1, 2, 2],
+            k=[0, 7, 2, 3, 6, 7, 1, 2, 1, 5, 7, 6],
+            opacity=0.85,
+            color=color,
+            hovertext=hovertext,
+            showlegend=False
+        ))
+
+    x_cursor = 0
+
+    for i, seg in enumerate(result.segments, 1):
+        if seg.type == "pure":
+            # Pure段：画1个长方体
+            box_width_along_W = get_box_width_along_W(seg.ptype, seg.orientation)
+            dx = seg.seg_length
+            dy = seg.cols * box_width_along_W
+            dz = seg.total_height
+            hovertext = f"{i} · {seg.ptype}<br>{seg.actual_layers}层 · {seg.qty}箱<br>{seg.seg_length:.0f}×{dy:.0f}×{seg.total_height:.0f} cm"
+            add_box(x_cursor, 0, 0, dx, dy, dz, COLORS[seg.ptype], hovertext)
+
+        elif seg.type == "shared":
+            # Shared段：画2个长方体
+            # 底块
+            base_box_width_along_W = get_box_width_along_W(seg.base_ptype, seg.way_base.orientation)
+            dx = seg.seg_length
+            dy = seg.way_base.cols * base_box_width_along_W
+            dz = 2 * seg.way_base.box_height
+            hovertext = f"{i}底 · {seg.base_ptype}<br>2层 · {seg.qty_base}箱"
+            add_box(x_cursor, 0, 0, dx, dy, dz, COLORS[seg.base_ptype], hovertext)
+
+            # 顶块（5L）
+            fiveL_box_width_along_W = get_box_width_along_W("5L", seg.way_5L.orientation)
+            # 重新计算5L实际长度：从Segment中推断
+            # layers_5L = ceil(qty_5L / per_layer_5L), per_layer_5L = rows_5L * way_5L.cols
+            # 所以 rows_5L可以从段长和朝向反推
+            # 更简单的方法：从Segment中已保存的信息，我们知道seg.seg_length是段长，但5L的实际长度可能更短
+            # 根据5L的row_depth和段长计算
+            rows_5L = math.ceil(seg.qty_5L / (seg.layers_5L * seg.way_5L.cols))
+            dx_5L = rows_5L * seg.way_5L.row_depth
+            dy_5L = seg.way_5L.cols * fiveL_box_width_along_W
+            dz_5L = seg.layers_5L * seg.way_5L.box_height
+            hovertext = f"{i}顶 · 5L<br>{seg.layers_5L}层 · {seg.qty_5L}箱"
+            add_box(x_cursor, 0, dz, dx_5L, dy_5L, dz_5L, COLORS["5L"], hovertext)
+
+        # 段标签
+        if seg.type == "pure":
+            label = f"{i} · {seg.ptype}"
+        else:
+            label = f"{i} · {seg.base_ptype}+5L"
+
+        fig.add_trace(go.Scatter3d(
+            x=[x_cursor + seg.seg_length / 2],
+            y=[container_spec["width"] / 2],
+            z=[seg.total_height + 5],
+            mode="text",
+            text=[label],
+            textfont=dict(size=14, color="#333"),
+            textposition="middle center",
+            showlegend=False,
+            hoverinfo="skip"
+        ))
+
+        x_cursor += seg.seg_length
+
+    fig.update_layout(
+        scene=dict(
+            xaxis_title="柜长 (cm)",
+            yaxis_title="柜宽 (cm)",
+            zaxis_title="柜高 (cm)",
+            aspectmode="data",
+            camera=dict(eye=dict(x=1.5, y=-1.8, z=1.0)),
+        ),
+        font=dict(family="Microsoft YaHei, SimHei, sans-serif"),
+        margin=dict(l=0, r=0, t=30, b=0),
+        showlegend=False,
+    )
     return fig
 
 

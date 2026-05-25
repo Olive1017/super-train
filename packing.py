@@ -268,10 +268,14 @@ def enumerate_shared_options(qty_5L: int, base_ptype: str, qty_base_available: i
                     if qty_base > qty_base_available:
                         continue
 
-                    seg_length = max(
-                        rows_5L * way_5L.row_depth,
-                        rows_base * way_base.row_depth
-                    )
+                    length_5L = rows_5L * way_5L.row_depth
+                    length_base = rows_base * way_base.row_depth
+
+                    # 物理约束：5L 不能伸出底层货品长度
+                    if length_5L > length_base:
+                        continue
+
+                    seg_length = length_base
 
                     if seg_length > container["length"]:
                         continue
