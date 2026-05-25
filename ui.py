@@ -167,8 +167,8 @@ def render_segment_table(result) -> None:
                 "品类": f"{seg.base_ptype}+5L",
                 "朝向": "—",
                 "排×列×层": (
-                    f"底{math.ceil(seg.seg_length / seg.way_base.row_depth)}×{seg.way_base.cols}×2 / "
-                    f"上{math.ceil(seg.seg_length / seg.way_5L.row_depth)}×{seg.way_5L.cols}×{seg.layers_5L}"
+                    f"底{seg.rows_base}×{seg.way_base.cols}×2 / "
+                    f"上{seg.rows_5L}×{seg.way_5L.cols}×{seg.layers_5L}"
                 ),
                 "箱数": f"{seg.qty_base}+{seg.qty_5L}",
                 "段长(cm)": round(seg.seg_length, 1),

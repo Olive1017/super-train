@@ -3,6 +3,7 @@
 """
 
 import math
+
 import matplotlib.pyplot as plt
 from matplotlib.patches import Rectangle
 import plotly.graph_objects as go
@@ -46,7 +47,7 @@ def render_side_view(result: PackingResult, container: str):
             # 计算箱子的长度（沿柜长方向）
             product = PRODUCTS[seg.ptype]
             if seg.orientation == "normal":
-                box_length = product["depth"]
+                box_length = product["length"]
             else:
                 box_length = product["width"]
 
@@ -77,12 +78,12 @@ def render_side_view(result: PackingResult, container: str):
 
         elif seg.type == "shared":
             base_height = 2 * seg.way_base.box_height
-            rows_base = math.ceil(seg.seg_length / seg.way_base.row_depth)
-            rows_5L = math.ceil(seg.seg_length / seg.way_5L.row_depth)
+            rows_base = seg.rows_base
+            rows_5L = seg.rows_5L
 
             # 底 2 层 base：逐 row 绘制（满层，无尾）
             base_product = PRODUCTS[seg.base_ptype]
-            base_box_length = base_product["depth"] if seg.way_base.orientation == "normal" else base_product["width"]
+            base_box_length = base_product["length"] if seg.way_base.orientation == "normal" else base_product["width"]
             for layer_idx in range(2):
                 y_pos = layer_idx * seg.way_base.box_height
                 for row_idx in range(rows_base):
@@ -91,7 +92,7 @@ def render_side_view(result: PackingResult, container: str):
 
             # 5L 层：逐 row 绘制
             fiveL_product = PRODUCTS["5L"]
-            fiveL_box_length = fiveL_product["depth"] if seg.way_5L.orientation == "normal" else fiveL_product["width"]
+            fiveL_box_length = fiveL_product["length"] if seg.way_5L.orientation == "normal" else fiveL_product["width"]
             per_layer_5L = rows_5L * seg.way_5L.cols
             full_layers_5L = seg.qty_5L // per_layer_5L
             remainder_5L = seg.qty_5L - full_layers_5L * per_layer_5L
@@ -188,8 +189,8 @@ def render_top_view(result: PackingResult, container: str):
 
             if seg.type == "pure":
                 product = PRODUCTS[seg.ptype]
-                box_length = product["depth"] if seg.orientation == "normal" else product["width"]
-                box_width = product["width"] if seg.orientation == "normal" else product["depth"]
+                box_length = product["length"] if seg.orientation == "normal" else product["width"]
+                box_width = product["width"] if seg.orientation == "normal" else product["length"]
                 per_layer = seg.per_layer
                 full_layers = seg.qty // per_layer
                 remainder = seg.qty - full_layers * per_layer
@@ -215,20 +216,20 @@ def render_top_view(result: PackingResult, container: str):
                 base_product = PRODUCTS[seg.base_ptype]
                 fiveL_product = PRODUCTS["5L"]
 
-                rows_base = math.ceil(seg.seg_length / seg.way_base.row_depth)
-                rows_5L = math.ceil(seg.seg_length / seg.way_5L.row_depth)
+                rows_base = seg.rows_base
+                rows_5L = seg.rows_5L
 
                 if layer_idx < 2:
-                    base_box_length = base_product["depth"] if seg.way_base.orientation == "normal" else base_product["width"]
-                    base_box_width = base_product["width"] if seg.way_base.orientation == "normal" else base_product["depth"]
+                    base_box_length = base_product["length"] if seg.way_base.orientation == "normal" else base_product["width"]
+                    base_box_width = base_product["width"] if seg.way_base.orientation == "normal" else base_product["length"]
                     for row in range(rows_base):
                         for col in range(seg.way_base.cols):
                             ax.add_patch(Rectangle((current_x + row * base_box_length, col * base_box_width),
                                                    base_box_length, base_box_width,
                                                    edgecolor='black', facecolor=COLORS[seg.base_ptype], alpha=0.8, hatch='//'))
                 elif 2 <= layer_idx < 2 + seg.layers_5L:
-                    fiveL_box_length = fiveL_product["depth"] if seg.way_5L.orientation == "normal" else fiveL_product["width"]
-                    fiveL_box_width = fiveL_product["width"] if seg.way_5L.orientation == "normal" else fiveL_product["depth"]
+                    fiveL_box_length = fiveL_product["length"] if seg.way_5L.orientation == "normal" else fiveL_product["width"]
+                    fiveL_box_width = fiveL_product["width"] if seg.way_5L.orientation == "normal" else fiveL_product["length"]
                     for row in range(rows_5L):
                         for col in range(seg.way_5L.cols):
                             ax.add_patch(Rectangle((current_x + row * fiveL_box_length, col * fiveL_box_width),
@@ -285,7 +286,7 @@ def render_3d_view(result: PackingResult, container: str):
     # 辅助函数：计算箱子在宽度方向的尺寸
     def get_box_width_along_W(ptype: str, orientation: str) -> float:
         product = PRODUCTS[ptype]
-        return product["width"] if orientation == "normal" else product["depth"]
+        return product["width"] if orientation == "normal" else product["length"]
 
     # 辅助函数：绘制长方体
     def add_box(x: float, y: float, z: float, dx: float, dy: float, dz: float, color: str, hovertext: str):
@@ -326,13 +327,8 @@ def render_3d_view(result: PackingResult, container: str):
 
             # 顶块（5L）
             fiveL_box_width_along_W = get_box_width_along_W("5L", seg.way_5L.orientation)
-            # 重新计算5L实际长度：从Segment中推断
-            # layers_5L = ceil(qty_5L / per_layer_5L), per_layer_5L = rows_5L * way_5L.cols
-            # 所以 rows_5L可以从段长和朝向反推
-            # 更简单的方法：从Segment中已保存的信息，我们知道seg.seg_length是段长，但5L的实际长度可能更短
-            # 根据5L的row_depth和段长计算
-            rows_5L = math.ceil(seg.qty_5L / (seg.layers_5L * seg.way_5L.cols))
-            dx_5L = rows_5L * seg.way_5L.row_depth
+            rows_5L = seg.rows_5L
+            dx_5L = rows_5L * seg.way_5L.row_length
             dy_5L = seg.way_5L.cols * fiveL_box_width_along_W
             dz_5L = seg.layers_5L * seg.way_5L.box_height
             hovertext = f"{i}顶 · 5L<br>{seg.layers_5L}层 · {seg.qty_5L}箱"
@@ -409,8 +405,8 @@ def generate_worker_guide(result: PackingResult, container: str) -> str:
 
         elif seg.type == "shared":
             lines.append("  ⚠ 共享段：先铺底再叠 5L")
-            rows_base = math.ceil(seg.seg_length / seg.way_base.row_depth)
-            rows_5L = math.ceil(seg.seg_length / seg.way_5L.row_depth)
+            rows_base = seg.rows_base
+            rows_5L = seg.rows_5L
             lines.append(f"  ① 底层 {seg.base_ptype}：2 层，{rows_base} 排 × {seg.way_base.cols} 列，共 {seg.qty_base} 箱")
             lines.append(f"  ② 上层 5L：{seg.layers_5L} 层，{rows_5L} 排 × {seg.way_5L.cols} 列，共 {seg.qty_5L} 箱")
 

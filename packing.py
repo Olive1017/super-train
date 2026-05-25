@@ -13,7 +13,7 @@ from config import PRODUCTS, CONTAINERS
 class Way:
     """装载方式：某种产品在某种朝向下的排列参数"""
     cols: int               # 柜宽方向能放的列数
-    row_depth: float        # 每行占用柜长方向深度
+    row_length: float       # 每行占用柜长方向长度
     side_gap: float         # 宽度方向剩余空隙
     box_height: float       # 单箱高度
     max_layers: int         # 最大层数
@@ -44,6 +44,8 @@ class Segment:
     layers_5L: Optional[int] = None       # 混合：5L层数
     actual_layers: Optional[int] = None   # 纯装：实际层数
     per_layer: Optional[int] = None       # 纯装：每层数量
+    rows_5L: Optional[int] = None         # 混合：5L实际行数
+    rows_base: Optional[int] = None       # 混合：底层实际行数
 
     def __repr__(self):
         if self.type == "pure":
@@ -94,9 +96,9 @@ def generate_ways(ptype: str, container: Dict) -> List[Way]:
     for orientation in ["normal", "rotated"]:
         if orientation == "normal":
             along_W = product["width"]
-            along_L = product["depth"]
+            along_L = product["length"]
         else:  # rotated
-            along_W = product["depth"]
+            along_W = product["length"]
             along_L = product["width"]
 
         cols = math.floor(container_W / along_W)
@@ -106,7 +108,7 @@ def generate_ways(ptype: str, container: Dict) -> List[Way]:
         side_gap = container_W - cols * along_W
         way = Way(
             cols=cols,
-            row_depth=along_L,
+            row_length=along_L,
             side_gap=side_gap,
             box_height=product["height"],
             max_layers=product["max_layers"],
@@ -152,7 +154,7 @@ def generate_pure_segment(ptype: str, qty: int, way: Way, rows: int,
     if total_height > container["height"]:
         return None
 
-    seg_length = rows * way.row_depth
+    seg_length = rows * way.row_length
     if seg_length > container["length"]:
         return None
 
@@ -196,7 +198,7 @@ def enumerate_pure_options(ptype: str, qty: int, container: Dict) -> List[Segmen
     ways = generate_ways(ptype, container)
 
     for way in ways:
-        max_rows = math.floor(container["length"] / way.row_depth)
+        max_rows = math.floor(container["length"] / way.row_length)
         for rows in range(1, max_rows + 1):
             seg = generate_pure_segment(ptype, qty, way, rows, container)
             if seg is not None:
@@ -251,7 +253,7 @@ def enumerate_shared_options(qty_5L: int, base_ptype: str, qty_base_available: i
     ways_base = generate_ways(base_ptype, container)
 
     for way_5L in ways_5L:
-        max_rows_5L = math.floor(container["length"] / way_5L.row_depth)
+        max_rows_5L = math.floor(container["length"] / way_5L.row_length)
 
         for rows_5L in range(1, max_rows_5L + 1):
             per_layer_5L = rows_5L * way_5L.cols
@@ -261,15 +263,15 @@ def enumerate_shared_options(qty_5L: int, base_ptype: str, qty_base_available: i
                 continue
 
             for way_base in ways_base:
-                max_rows_base = math.floor(container["length"] / way_base.row_depth)
+                max_rows_base = math.floor(container["length"] / way_base.row_length)
 
                 for rows_base in range(1, max_rows_base + 1):
                     qty_base = rows_base * way_base.cols * 2
                     if qty_base > qty_base_available:
                         continue
 
-                    length_5L = rows_5L * way_5L.row_depth
-                    length_base = rows_base * way_base.row_depth
+                    length_5L = rows_5L * way_5L.row_length
+                    length_base = rows_base * way_base.row_length
 
                     # 物理约束：5L 不能伸出底层货品长度
                     if length_5L > length_base:
@@ -301,7 +303,9 @@ def enumerate_shared_options(qty_5L: int, base_ptype: str, qty_base_available: i
                         way_base=way_base,
                         layers_5L=layers_5L,
                         actual_layers=None,
-                        per_layer=None
+                        per_layer=None,
+                        rows_5L=rows_5L,
+                        rows_base=rows_base
                     )
                     options.append(segment)
 
