@@ -309,7 +309,7 @@ def render_3d_view(result: PackingResult, container: str):
         return product["width"] if orientation == "normal" else product["length"]
 
     # 辅助函数：绘制长方体
-    def add_box(x: float, y: float, z: float, dx: float, dy: float, dz: float, color: str, hovertext: str):
+    def add_box(x: float, y: float, z: float, dx: float, dy: float, dz: float, color: str, hovertext: str, opacity=0.85):
         fig.add_trace(go.Mesh3d(
             x=[x,    x+dx, x+dx, x,    x,    x+dx, x+dx, x   ],
             y=[y,    y,    y+dy, y+dy, y,    y,    y+dy, y+dy],
@@ -317,7 +317,7 @@ def render_3d_view(result: PackingResult, container: str):
             i=[7, 0, 0, 0, 4, 4, 2, 6, 4, 0, 3, 7],
             j=[3, 4, 1, 2, 5, 6, 5, 5, 0, 1, 2, 2],
             k=[0, 7, 2, 3, 6, 7, 1, 2, 1, 5, 7, 6],
-            opacity=0.85,
+            opacity=opacity,
             color=color,
             hovertext=hovertext,
             showlegend=False
@@ -327,32 +327,107 @@ def render_3d_view(result: PackingResult, container: str):
 
     for i, seg in enumerate(result.segments, 1):
         if seg.type == "pure":
-            # Pure段：画1个长方体
+            # Pure段：拆分满层、尾层满行、尾层零散箱
+            product = PRODUCTS[seg.ptype]
+            box_length = product["length"] if seg.orientation == "normal" else product["width"]
             box_width_along_W = get_box_width_along_W(seg.ptype, seg.orientation)
-            dx = seg.seg_length
             dy = seg.cols * box_width_along_W
-            dz = seg.total_height
-            hovertext = f"{i} · {seg.ptype}<br>{seg.actual_layers}层 · {seg.qty}箱<br>{seg.seg_length:.0f}×{dy:.0f}×{seg.total_height:.0f} cm"
-            add_box(x_cursor, 0, 0, dx, dy, dz, COLORS[seg.ptype], hovertext)
+            layer_height = seg.total_height / seg.actual_layers
+            color = COLORS[seg.ptype]
+            per_layer = seg.per_layer
+            full_layers = seg.qty // per_layer
+            remainder = seg.qty - full_layers * per_layer
+            tail_full_rows = remainder // seg.cols
+            tail_last_cols = remainder - tail_full_rows * seg.cols
+
+            # ① 满层主体
+            if full_layers > 0:
+                dz_full = full_layers * layer_height
+                add_box(
+                    x_cursor, 0, 0, seg.seg_length, dy, dz_full,
+                    color,
+                    f"{i} · {seg.ptype}<br>满 {full_layers} 层 · {full_layers * per_layer} 箱"
+                )
+
+            # ② 尾层满行
+            if remainder > 0:
+                z_tail = full_layers * layer_height
+                if tail_full_rows > 0:
+                    dx_tf = tail_full_rows * box_length
+                    add_box(
+                        x_cursor, 0, z_tail, dx_tf, dy, layer_height,
+                        color,
+                        f"{i} 尾层满行 · {tail_full_rows} 排 × {seg.cols} 列"
+                    )
+
+                # ③ 尾层零散箱（低透明度）
+                if tail_last_cols > 0:
+                    x_partial = x_cursor + tail_full_rows * box_length
+                    dy_partial = tail_last_cols * box_width_along_W
+                    add_box(
+                        x_partial, 0, z_tail, box_length, dy_partial, layer_height,
+                        color,
+                        f"{i} 尾层零散 · {tail_last_cols}/{seg.cols} 箱",
+                        opacity=0.4
+                    )
 
         elif seg.type == "shared":
-            # Shared段：画2个长方体
-            # 底块
+            # Shared段：base 保持单块，5L 拆分顶层
+            # —— Base（2 层始终满，保持单块）——
+            base_product = PRODUCTS[seg.base_ptype]
             base_box_width_along_W = get_box_width_along_W(seg.base_ptype, seg.way_base.orientation)
-            dx = seg.seg_length
-            dy = seg.way_base.cols * base_box_width_along_W
-            dz = 2 * seg.way_base.box_height
-            hovertext = f"{i}底 · {seg.base_ptype}<br>2层 · {seg.qty_base}箱"
-            add_box(x_cursor, 0, 0, dx, dy, dz, COLORS[seg.base_ptype], hovertext)
+            base_dy = seg.way_base.cols * base_box_width_along_W
+            base_dz = 2 * seg.way_base.box_height
+            add_box(
+                x_cursor, 0, 0, seg.seg_length, base_dy, base_dz,
+                COLORS[seg.base_ptype],
+                f"{i}底 · {seg.base_ptype}<br>2 层 · {seg.qty_base} 箱"
+            )
 
-            # 顶块（5L）
+            # —— 5L 部分（拆分顶层）——
+            fiveL_product = PRODUCTS["5L"]
+            fiveL_box_length = fiveL_product["length"] if seg.way_5L.orientation == "normal" else fiveL_product["width"]
             fiveL_box_width_along_W = get_box_width_along_W("5L", seg.way_5L.orientation)
+            fiveL_dy = seg.way_5L.cols * fiveL_box_width_along_W
+            fiveL_h = seg.way_5L.box_height
             rows_5L = seg.rows_5L
-            dx_5L = rows_5L * seg.way_5L.row_length
-            dy_5L = seg.way_5L.cols * fiveL_box_width_along_W
-            dz_5L = seg.layers_5L * seg.way_5L.box_height
-            hovertext = f"{i}顶 · 5L<br>{seg.layers_5L}层 · {seg.qty_5L}箱"
-            add_box(x_cursor, 0, dz, dx_5L, dy_5L, dz_5L, COLORS["5L"], hovertext)
+            per_layer_5L = rows_5L * seg.way_5L.cols
+            full_layers_5L = seg.qty_5L // per_layer_5L
+            remainder_5L = seg.qty_5L - full_layers_5L * per_layer_5L
+            tail_full_rows_5L = remainder_5L // seg.way_5L.cols
+            tail_last_cols_5L = remainder_5L - tail_full_rows_5L * seg.way_5L.cols
+
+            # ① 5L 满层主体
+            if full_layers_5L > 0:
+                dx_5L_full = rows_5L * seg.way_5L.row_length
+                dz_5L_full = full_layers_5L * fiveL_h
+                add_box(
+                    x_cursor, 0, base_dz, dx_5L_full, fiveL_dy, dz_5L_full,
+                    COLORS["5L"],
+                    f"{i}顶 · 5L<br>满 {full_layers_5L} 层 · {full_layers_5L * per_layer_5L} 箱"
+                )
+
+            # ② 5L 尾层满行
+            if remainder_5L > 0:
+                z_tail_5L = base_dz + full_layers_5L * fiveL_h
+                if tail_full_rows_5L > 0:
+                    dx_tf_5L = tail_full_rows_5L * fiveL_box_length
+                    add_box(
+                        x_cursor, 0, z_tail_5L, dx_tf_5L, fiveL_dy, fiveL_h,
+                        COLORS["5L"],
+                        f"{i}顶 · 5L 尾层满行 · {tail_full_rows_5L} 排 × {seg.way_5L.cols} 列"
+                    )
+
+                # ③ 5L 尾层零散箱（低透明度）
+                if tail_last_cols_5L > 0:
+                    x_partial_5L = x_cursor + tail_full_rows_5L * fiveL_box_length
+                    dy_partial_5L = tail_last_cols_5L * fiveL_box_width_along_W
+                    add_box(
+                        x_partial_5L, 0, z_tail_5L, fiveL_box_length, dy_partial_5L, fiveL_h,
+                        COLORS["5L"],
+                        f"{i}顶 · 5L 尾层零散 · {tail_last_cols_5L}/{seg.way_5L.cols} 箱",
+                        opacity=0.4
+                    )
 
         # 段标签
         if seg.type == "pure":
