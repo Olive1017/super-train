@@ -175,6 +175,13 @@ def render_segment_table(result) -> None:
                 "段高(cm)": round(seg.total_height, 1),
             })
 
+    # 在第 177 行之前插入：
+    st.caption(
+        "💡 **朝向说明**："
+        "「正向」表示长沿柜长、宽沿柜宽；"
+        "「旋转」表示长沿柜宽、宽沿柜长"
+    )
+
     st.dataframe(
         pd.DataFrame(rows),
         hide_index=True,
