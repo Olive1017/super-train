@@ -259,20 +259,20 @@ def render_3d_view(result: PackingResult, container: str):
     # 绘制容器线框（12条棱）
     edges = [
         # 底面4条棱
-        ([0, 0], [0, 0], [0, 0]),
-        ([L, L], [0, 0], [0, 0]),
-        ([0, 0], [W, W], [0, 0]),
-        ([L, L], [W, W], [0, 0]),
+        ([0, L], [0, 0], [0, 0]),
+        ([L, L], [0, W], [0, 0]),
+        ([L, 0], [W, W], [0, 0]),
+        ([0, 0], [W, 0], [0, 0]),
         # 顶面4条棱
-        ([0, 0], [0, 0], [H, H]),
-        ([L, L], [0, 0], [H, H]),
-        ([0, 0], [W, W], [H, H]),
-        ([L, L], [W, W], [H, H]),
+        ([0, L], [0, 0], [H, H]),
+        ([L, L], [0, W], [H, H]),
+        ([L, 0], [W, W], [H, H]),
+        ([0, 0], [W, 0], [H, H]),
         # 垂直4条棱
         ([0, 0], [0, 0], [0, H]),
         ([L, L], [0, 0], [0, H]),
-        ([0, 0], [W, W], [0, H]),
         ([L, L], [W, W], [0, H]),
+        ([0, 0], [W, W], [0, H]),
     ]
     for edge in edges:
         fig.add_trace(go.Scatter3d(
@@ -283,6 +283,26 @@ def render_3d_view(result: PackingResult, container: str):
             hoverinfo="skip"
         ))
 
+    # 柜门方向指示
+    fig.add_trace(go.Cone(
+        x=[L + 30], y=[W / 2], z=[H / 2],
+        u=[1], v=[0], w=[0],
+        sizemode="absolute",
+        sizeref=40,
+        anchor="tail",
+        colorscale=[[0, "#666"], [1, "#666"]],
+        showscale=False,
+        showlegend=False,
+        hoverinfo="skip",
+    ))
+    fig.add_trace(go.Scatter3d(
+        x=[L + 80], y=[W / 2], z=[H / 2],
+        mode="text",
+        text=["柜门"],
+        textfont=dict(size=12, color="#666"),
+        showlegend=False, hoverinfo="skip",
+    ))
+
     # 辅助函数：计算箱子在宽度方向的尺寸
     def get_box_width_along_W(ptype: str, orientation: str) -> float:
         product = PRODUCTS[ptype]
@@ -291,9 +311,9 @@ def render_3d_view(result: PackingResult, container: str):
     # 辅助函数：绘制长方体
     def add_box(x: float, y: float, z: float, dx: float, dy: float, dz: float, color: str, hovertext: str):
         fig.add_trace(go.Mesh3d(
-            x=[x, x+dx, x+dx, x, x, x, x+dx, x+dx],
-            y=[y, y, y+dy, y+dy, y, y, y, y+dy],
-            z=[z, z, z, z, z+dz, z+dz, z+dz, z+dz],
+            x=[x,    x+dx, x+dx, x,    x,    x+dx, x+dx, x   ],
+            y=[y,    y,    y+dy, y+dy, y,    y,    y+dy, y+dy],
+            z=[z,    z,    z,    z,    z+dz, z+dz, z+dz, z+dz],
             i=[7, 0, 0, 0, 4, 4, 2, 6, 4, 0, 3, 7],
             j=[3, 4, 1, 2, 5, 6, 5, 5, 0, 1, 2, 2],
             k=[0, 7, 2, 3, 6, 7, 1, 2, 1, 5, 7, 6],
@@ -354,6 +374,16 @@ def render_3d_view(result: PackingResult, container: str):
 
         x_cursor += seg.seg_length
 
+    # 添加产品图例
+    for ptype, color in COLORS.items():
+        fig.add_trace(go.Scatter3d(
+            x=[None], y=[None], z=[None],
+            mode="markers",
+            marker=dict(size=10, color=color),
+            name=ptype,
+            showlegend=True,
+        ))
+
     fig.update_layout(
         scene=dict(
             xaxis_title="柜长 (cm)",
@@ -363,8 +393,13 @@ def render_3d_view(result: PackingResult, container: str):
             camera=dict(eye=dict(x=1.5, y=-1.8, z=1.0)),
         ),
         font=dict(family="Microsoft YaHei, SimHei, sans-serif"),
-        margin=dict(l=0, r=0, t=30, b=0),
-        showlegend=False,
+        margin=dict(l=0, r=0, t=50, b=0),
+        showlegend=True,
+        title=dict(
+            text=f"3D 视图 - 利用率: {result.utilization:.1%}, 高差: {result.height_variance:.1f}cm",
+            x=0.5, xanchor="center",
+            font=dict(size=14)
+        ),
     )
     return fig
 
@@ -419,4 +454,4 @@ def generate_worker_guide(result: PackingResult, container: str) -> str:
         "- 共享段：先铺完底层 base，再叠 5L"
     ])
 
-    return "\\n".join(lines)
+    return "\n".join(lines)

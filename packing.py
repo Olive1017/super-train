@@ -46,6 +46,7 @@ class Segment:
     per_layer: Optional[int] = None       # 纯装：每层数量
     rows_5L: Optional[int] = None         # 混合：5L实际行数
     rows_base: Optional[int] = None       # 混合：底层实际行数
+    intra_h_diff: float = 0.0             # 段内最大高差（cm）
 
     def __repr__(self):
         if self.type == "pure":
@@ -158,6 +159,8 @@ def generate_pure_segment(ptype: str, qty: int, way: Way, rows: int,
     if seg_length > container["length"]:
         return None
 
+    intra_h_diff = way.box_height if remainder > 0 else 0.0
+
     return Segment(
         type="pure",
         ptype=ptype,
@@ -175,7 +178,8 @@ def generate_pure_segment(ptype: str, qty: int, way: Way, rows: int,
         way_base=None,
         actual_layers=actual_layers,
         per_layer=per_layer,
-        layers_5L=None
+        layers_5L=None,
+        intra_h_diff=intra_h_diff
     )
 
 
@@ -286,6 +290,8 @@ def enumerate_shared_options(qty_5L: int, base_ptype: str, qty_base_available: i
                     if total_height > container["height"]:
                         continue
 
+                    intra_h_diff = layers_5L * way_5L.box_height if length_5L < length_base else 0.0
+
                     segment = Segment(
                         type="shared",
                         ptype=None,
@@ -305,7 +311,8 @@ def enumerate_shared_options(qty_5L: int, base_ptype: str, qty_base_available: i
                         actual_layers=None,
                         per_layer=None,
                         rows_5L=rows_5L,
-                        rows_base=rows_base
+                        rows_base=rows_base,
+                        intra_h_diff=intra_h_diff
                     )
                     options.append(segment)
 
@@ -335,6 +342,23 @@ def enumerate_shared_options(qty_5L: int, base_ptype: str, qty_base_available: i
     return options
 
 
+def _utilization_score(util: float) -> float:
+    """
+    长度利用率打分曲线：
+    util < 0.97：线性单增（util_score = util），仍鼓励向上
+    0.97 ≤ util ≤ 0.98：甜蜜区平台，恒为 0.98
+    util > 0.98：陡降，每多 0.01 扣 0.03
+    """
+    LO, HI = 0.97, 0.98
+    OVER_PENALTY = 3.0
+    if util < LO:
+        return util
+    elif util <= HI:
+        return HI
+    else:
+        return HI - OVER_PENALTY * (util - HI)
+
+
 def evaluate_combo(combo: List[Segment], container: Dict,
                   w1: float, w2: float, w3: float) -> Optional[Tuple[float, float, float, float]]:
     """
@@ -358,12 +382,24 @@ def evaluate_combo(combo: List[Segment], container: Dict,
 
     sorted_combo = sorted(combo, key=lambda s: s.total_height)
     heights = [s.total_height for s in sorted_combo]
-    height_variance = sum(abs(heights[i] - heights[i + 1]) for i in range(len(heights) - 1))
+
+    # 段间高差：取最大相邻段差（反映"最丑的那一处台阶"），而非求和
+    # 求和在升序排列下会退化为 max - min，不反映中间段的过渡情况
+    if len(heights) > 1:
+        inter_variance = max(heights[i + 1] - heights[i] for i in range(len(heights) - 1))
+    else:
+        inter_variance = 0.0
+
+    # 段内高差：取所有段中最大的 intra（反映"最丑的那一处段内台阶"），而非累加
+    # 累加会让段数多的方案被多罚，与物理感知不符
+    intra_variance = max((s.intra_h_diff for s in combo), default=0.0)
+
+    height_variance = inter_variance + intra_variance
 
     side_gaps = [s.side_gap for s in combo]
     side_gap_avg = sum(side_gaps) / len(side_gaps)
 
-    score = (w1 * utilization -
+    score = (w1 * _utilization_score(utilization) -
              w2 * height_variance / container["height"] -
              w3 * side_gap_avg / container["width"])
 
@@ -371,7 +407,7 @@ def evaluate_combo(combo: List[Segment], container: Dict,
 
 
 def search_best(orders: Dict[str, int], container: str,
-               w1: float = 1.0, w2: float = 0.5, w3: float = 0.2) -> PackingResult:
+               w1: float = 1.0, w2: float = 0.5, w3: float = 0.15) -> PackingResult:
     """
     Phase 2: 搜索最优装箱方案
 
@@ -502,7 +538,7 @@ def search_best(orders: Dict[str, int], container: str,
 
 
 def pack(order_id: str, orders: Dict[str, int], container: str,
-        w1: float = 1.0, w2: float = 0.5, w3: float = 0.2) -> Optional[PackingResult]:
+        w1: float = 1.0, w2: float = 0.5, w3: float = 0.15) -> Optional[PackingResult]:
     """
     计算装箱方案的主函数
 
