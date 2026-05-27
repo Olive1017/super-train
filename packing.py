@@ -380,13 +380,13 @@ def evaluate_combo(combo: List[Segment], container: Dict,
     if utilization < 0.95:
         return None
 
-    sorted_combo = sorted(combo, key=lambda s: s.total_height)
+    sorted_combo = sorted(combo, key=lambda s: s.total_height, reverse=True)
     heights = [s.total_height for s in sorted_combo]
 
     # 段间高差：取最大相邻段差（反映"最丑的那一处台阶"），而非求和
     # 求和在升序排列下会退化为 max - min，不反映中间段的过渡情况
     if len(heights) > 1:
-        inter_variance = max(heights[i + 1] - heights[i] for i in range(len(heights) - 1))
+        inter_variance = max(abs(heights[i + 1] - heights[i]) for i in range(len(heights) - 1))
     else:
         inter_variance = 0.0
 
@@ -455,7 +455,7 @@ def search_best(orders: Dict[str, int], container: str,
                 if result is not None:
                     score, util, h_var, sg_avg = result
                     if best is None or score > best.score:
-                        sorted_combo = sorted(list(combo), key=lambda s: s.total_height)
+                        sorted_combo = sorted(list(combo), key=lambda s: s.total_height, reverse=True)
                         best = PackingResult(
                             segments=sorted_combo,
                             utilization=util,
@@ -517,7 +517,7 @@ def search_best(orders: Dict[str, int], container: str,
                                 if result is not None:
                                     score, util, h_var, sg_avg = result
                                     if best is None or score > best.score:
-                                        sorted_combo = sorted(combo, key=lambda s: s.total_height)
+                                        sorted_combo = sorted(combo, key=lambda s: s.total_height, reverse=True)
                                         best = PackingResult(
                                             segments=sorted_combo,
                                             utilization=util,

@@ -2,7 +2,6 @@
 装柜方案可视化
 """
 
-import math
 import itertools
 
 import matplotlib.pyplot as plt
@@ -166,7 +165,7 @@ def choose_bump_placements(segments):
     枚举每段 front/back 选择，选总边界跳跃最小的组合。
 
     Args:
-        segments: 段列表，已按 total_height 升序排序
+        segments: 段列表，已按 total_height 降序排序
 
     Returns:
         list[str]: 每段的尾层位置，长度 = len(segments)
