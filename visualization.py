@@ -3,6 +3,7 @@
 """
 
 import math
+import itertools
 
 import matplotlib.pyplot as plt
 from matplotlib.patches import Rectangle
@@ -14,13 +15,216 @@ COLORS = {"5L": "#4A90E2", "2L": "#7ED321", "艾考": "#F5A623"}
 FONT_PATH = "fonts/SIMHEI.ttf"
 
 
+def bump_subblock_x_starts(placement, x_seg_start, seg_length, bump_length, box_length, tail_full_rows, tail_last_cols):
+    """
+    返回 bump 内部 '满行块' 和 '零散行块' 的 x 起点。
+
+    零散行永远紧邻段主体，满行永远占段外缘。
+
+    Args:
+        placement: "front" 或 "back"
+        x_seg_start: 段起点 x 坐标
+        seg_length: 段长度
+        bump_length: bump 总长度
+        box_length: 单个箱子长度
+        tail_full_rows: 满行数量
+        tail_last_cols: 零散列数量
+
+    Returns:
+        (x_full_start, x_partial_start): 满行块和零散块的 x 起点
+    """
+    full_width = tail_full_rows * box_length
+    partial_width = box_length if tail_last_cols > 0 else 0
+
+    if placement == "front":
+        # bump 在段左、主体在右；零散行靠右（贴主体），满行靠左（贴段外缘）
+        x_full_start = x_seg_start
+        x_partial_start = x_seg_start + full_width
+    elif placement == "back":
+        # bump 在段右、主体在左；零散行靠左（贴主体），满行靠右（贴段外缘）
+        bump_start = x_seg_start + seg_length - bump_length
+        x_partial_start = bump_start
+        x_full_start = bump_start + partial_width
+    else:
+        raise ValueError(f"Invalid placement: {placement}")
+
+    return x_full_start, x_partial_start
+
+
+def get_segment_profile(seg):
+    """
+    返回该段的"高度档案"。
+
+    Returns:
+        dict: {
+            main_height: 主体高度（不含尾层），
+            bump_length: 尾层长度，
+            bump_height: 尾层高度，
+            bump_full_rows: 尾层满行数，
+            bump_partial_cols: 尾层零散列数，
+            box_length: 沿柜长方向的箱子长度，
+            box_width_along_W: 沿柜宽方向的箱子宽度，
+            color: 颜色，
+            orientation: 朝向
+        }
+    """
+    if seg.type == "pure":
+        per_layer = seg.per_layer
+        full_layers = seg.qty // per_layer
+        remainder = seg.qty - full_layers * per_layer
+        tail_full_rows = remainder // seg.cols
+        tail_last_cols = remainder - tail_full_rows * seg.cols
+        layer_height = seg.total_height / seg.actual_layers
+
+        product = PRODUCTS[seg.ptype]
+        if seg.orientation == "normal":
+            box_length = product["length"]
+            box_width_along_W = product["width"]
+        else:
+            box_length = product["width"]
+            box_width_along_W = product["length"]
+
+        if remainder > 0:
+            bump_length = (tail_full_rows + (1 if tail_last_cols > 0 else 0)) * box_length
+            bump_height = layer_height
+            main_height = full_layers * layer_height
+        else:
+            bump_length = 0
+            bump_height = 0
+            main_height = seg.total_height
+
+        return {
+            "main_height": main_height,
+            "bump_length": bump_length,
+            "bump_height": bump_height,
+            "bump_full_rows": tail_full_rows,
+            "bump_partial_cols": tail_last_cols,
+            "box_length": box_length,
+            "box_width_along_W": box_width_along_W,
+            "color": COLORS[seg.ptype],
+            "orientation": seg.orientation,
+            "cols": seg.cols,
+        }
+
+    elif seg.type == "shared":
+        # base 始终满 2 层，不参与决策
+        base_height = 2 * seg.way_base.box_height
+
+        # 5L 部分计算尾层
+        fiveL_product = PRODUCTS["5L"]
+        per_layer_5L = seg.rows_5L * seg.way_5L.cols
+        full_layers_5L = seg.qty_5L // per_layer_5L
+        remainder_5L = seg.qty_5L - full_layers_5L * per_layer_5L
+        tail_full_rows_5L = remainder_5L // seg.way_5L.cols
+        tail_last_cols_5L = remainder_5L - tail_full_rows_5L * seg.way_5L.cols
+
+        if seg.way_5L.orientation == "normal":
+            box_length = fiveL_product["length"]
+            box_width_along_W = fiveL_product["width"]
+        else:
+            box_length = fiveL_product["width"]
+            box_width_along_W = fiveL_product["length"]
+
+        if remainder_5L > 0:
+            bump_length = (tail_full_rows_5L + (1 if tail_last_cols_5L > 0 else 0)) * box_length
+            bump_height = seg.way_5L.box_height
+            main_height = base_height + full_layers_5L * seg.way_5L.box_height
+        else:
+            bump_length = 0
+            bump_height = 0
+            main_height = seg.total_height
+
+        return {
+            "main_height": main_height,
+            "bump_length": bump_length,
+            "bump_height": bump_height,
+            "bump_full_rows": tail_full_rows_5L,
+            "bump_partial_cols": tail_last_cols_5L,
+            "box_length": box_length,
+            "box_width_along_W": box_width_along_W,
+            "color": COLORS["5L"],
+            "orientation": seg.way_5L.orientation,
+            "cols": seg.way_5L.cols,
+        }
+
+    return {
+        "main_height": seg.total_height,
+        "bump_length": 0,
+        "bump_height": 0,
+        "bump_full_rows": 0,
+        "bump_partial_cols": 0,
+        "box_length": 0,
+        "box_width_along_W": 0,
+        "color": "gray",
+        "orientation": "normal",
+        "cols": 0,
+    }
+
+
+def choose_bump_placements(segments):
+    """
+    枚举每段 front/back 选择，选总边界跳跃最小的组合。
+
+    Args:
+        segments: 段列表，已按 total_height 升序排序
+
+    Returns:
+        list[str]: 每段的尾层位置，长度 = len(segments)
+                   可能的值: "front", "back", "none"
+    """
+    profiles = [get_segment_profile(s) for s in segments]
+    n = len(segments)
+
+    if n == 0:
+        return []
+
+    # 为每段生成选项：无尾层时只有 "none"，否则 "front" 或 "back"
+    options_per_seg = [["none"] if p["bump_length"] == 0 else ["front", "back"] for p in profiles]
+
+    best_score = float("inf")
+    best_choices = None
+
+    # 枚举所有可能的组合 (最多 2^N 种)
+    for combo in itertools.product(*options_per_seg):
+        # 计算每段在前端/后端的实际可见高度
+        edges = []
+        for p, c in zip(profiles, combo):
+            if c == "front":
+                edges.append((p["main_height"] + p["bump_height"], p["main_height"]))
+            elif c == "back":
+                edges.append((p["main_height"], p["main_height"] + p["bump_height"]))
+            else:
+                edges.append((p["main_height"], p["main_height"]))
+
+        # 计算相邻段边界跳跃之和
+        if n > 1:
+            score = sum(abs(edges[i][1] - edges[i + 1][0]) for i in range(n - 1))
+        else:
+            score = 0
+
+        if score < best_score:
+            best_score = score
+            best_choices = list(combo)
+
+    return best_choices
+
+
 def setup_chinese_font():
     import matplotlib.font_manager as fm
     return fm.FontProperties(fname=FONT_PATH)
 
 
-def render_side_view(result: PackingResult, container: str):
-    """侧视图"""
+def render_side_view(result: PackingResult, container: str, placements=None):
+    """侧视图
+
+    Args:
+        result: 装箱结果
+        container: 柜型名称
+        placements: 尾层位置列表，["front", "back", "none"]，长度与 segments 相同
+    """
+    if placements is None:
+        placements = choose_bump_placements(result.segments)
+
     container_spec = CONTAINERS[container]
     font_prop = setup_chinese_font()
     fig, ax = plt.subplots(figsize=(12, 6))
@@ -34,6 +238,7 @@ def render_side_view(result: PackingResult, container: str):
     prev_seg_height = 0
 
     for i, seg in enumerate(result.segments, 1):
+        placement = placements[i - 1] if i <= len(placements) else "none"
         color = COLORS.get(seg.ptype or seg.base_ptype, "gray")
 
         if seg.type == "pure":
@@ -62,16 +267,23 @@ def render_side_view(result: PackingResult, container: str):
             # 尾层：逐 row 绘制，空 row 留白
             if remainder > 0:
                 y_pos = full_layers * layer_height
+                bump_length = (tail_full_rows + (1 if tail_last_cols > 0 else 0)) * box_length
+
+                # 计算尾层子块 x 起点
+                x_full_start, x_partial_start = bump_subblock_x_starts(
+                    placement, current_x, seg.seg_length, bump_length,
+                    box_length, tail_full_rows, tail_last_cols
+                )
+
                 # 实排（满row）
                 for row_idx in range(tail_full_rows):
-                    ax.add_patch(Rectangle((current_x + row_idx * box_length, y_pos), box_length, layer_height,
+                    ax.add_patch(Rectangle((x_full_start + row_idx * box_length, y_pos), box_length, layer_height,
                                            edgecolor='black', facecolor=color, alpha=0.8))
                 # 不满排（浅色）
                 if tail_last_cols > 0:
-                    x_partial = current_x + tail_full_rows * box_length
-                    ax.add_patch(Rectangle((x_partial, y_pos), box_length, layer_height,
+                    ax.add_patch(Rectangle((x_partial_start, y_pos), box_length, layer_height,
                                            edgecolor='black', facecolor=color, alpha=0.4, linestyle='--', linewidth=1))
-                    ax.text(x_partial + box_length / 2, y_pos + layer_height / 2,
+                    ax.text(x_partial_start + box_length / 2, y_pos + layer_height / 2,
                             f"{tail_last_cols}/{seg.cols}",
                             ha='center', va='center', fontsize=7, color='#333')
                 # 空 row 留白（不画矩形）
@@ -110,16 +322,23 @@ def render_side_view(result: PackingResult, container: str):
             # 5L 尾层
             if remainder_5L > 0:
                 y_pos = base_height + full_layers_5L * seg.way_5L.box_height
+                bump_length_5L = (tail_full_rows_5L + (1 if tail_last_cols_5L > 0 else 0)) * fiveL_box_length
+
+                # 计算尾层子块 x 起点
+                x_full_start, x_partial_start = bump_subblock_x_starts(
+                    placement, current_x, seg.seg_length, bump_length_5L,
+                    fiveL_box_length, tail_full_rows_5L, tail_last_cols_5L
+                )
+
                 # 实排
                 for row_idx in range(tail_full_rows_5L):
-                    ax.add_patch(Rectangle((current_x + row_idx * fiveL_box_length, y_pos), fiveL_box_length, seg.way_5L.box_height,
+                    ax.add_patch(Rectangle((x_full_start + row_idx * fiveL_box_length, y_pos), fiveL_box_length, seg.way_5L.box_height,
                                            edgecolor='black', facecolor=COLORS["5L"], alpha=0.8))
                 # 不满排（浅色）
                 if tail_last_cols_5L > 0:
-                    x_partial = current_x + tail_full_rows_5L * fiveL_box_length
-                    ax.add_patch(Rectangle((x_partial, y_pos), fiveL_box_length, seg.way_5L.box_height,
+                    ax.add_patch(Rectangle((x_partial_start, y_pos), fiveL_box_length, seg.way_5L.box_height,
                                            edgecolor='black', facecolor=COLORS["5L"], alpha=0.4, linestyle='--', linewidth=1))
-                    ax.text(x_partial + fiveL_box_length / 2, y_pos + seg.way_5L.box_height / 2,
+                    ax.text(x_partial_start + fiveL_box_length / 2, y_pos + seg.way_5L.box_height / 2,
                             f"{tail_last_cols_5L}/{seg.way_5L.cols}",
                             ha='center', va='center', fontsize=7, color='#333')
 
@@ -166,8 +385,17 @@ def render_side_view(result: PackingResult, container: str):
     return fig
 
 
-def render_top_view(result: PackingResult, container: str):
-    """俯视图"""
+def render_top_view(result: PackingResult, container: str, placements=None):
+    """俯视图
+
+    Args:
+        result: 装箱结果
+        container: 柜型名称
+        placements: 尾层位置列表，["front", "back", "none"]，长度与 segments 相同
+    """
+    if placements is None:
+        placements = choose_bump_placements(result.segments)
+
     container_spec = CONTAINERS[container]
     font_prop = setup_chinese_font()
     max_layers = max((seg.actual_layers if seg.type == "pure" else 2 + seg.layers_5L)
@@ -184,7 +412,8 @@ def render_top_view(result: PackingResult, container: str):
         ax.add_patch(Rectangle((0, 0), container_L, container_W, edgecolor='black', facecolor='none', linewidth=2))
         current_x = 0
 
-        for seg in result.segments:
+        for i, seg in enumerate(result.segments):
+            placement = placements[i] if i < len(placements) else "none"
             color = COLORS.get(seg.ptype or seg.base_ptype, "gray")
 
             if seg.type == "pure":
@@ -203,13 +432,21 @@ def render_top_view(result: PackingResult, container: str):
                             ax.add_patch(Rectangle((current_x + row * box_length, col * box_width),
                                                    box_length, box_width, edgecolor='black', facecolor=color, alpha=0.8))
                 elif layer_idx == full_layers and remainder > 0:
+                    bump_length = (tail_full_rows + (1 if tail_last_cols > 0 else 0)) * box_length
+
+                    # 计算尾层子块 x 起点
+                    x_full_start, x_partial_start = bump_subblock_x_starts(
+                        placement, current_x, seg.seg_length, bump_length,
+                        box_length, tail_full_rows, tail_last_cols
+                    )
+
                     for row in range(tail_full_rows):
                         for col in range(seg.cols):
-                            ax.add_patch(Rectangle((current_x + row * box_length, col * box_width),
+                            ax.add_patch(Rectangle((x_full_start + row * box_length, col * box_width),
                                                    box_length, box_width, edgecolor='black', facecolor=color, alpha=0.8))
                     if tail_last_cols > 0:
                         for col in range(tail_last_cols):
-                            ax.add_patch(Rectangle((current_x + tail_full_rows * box_length, col * box_width),
+                            ax.add_patch(Rectangle((x_partial_start, col * box_width),
                                                    box_length, box_width, edgecolor='black', facecolor=color, alpha=0.6, linestyle='--'))
 
             elif seg.type == "shared":
@@ -230,11 +467,39 @@ def render_top_view(result: PackingResult, container: str):
                 elif 2 <= layer_idx < 2 + seg.layers_5L:
                     fiveL_box_length = fiveL_product["length"] if seg.way_5L.orientation == "normal" else fiveL_product["width"]
                     fiveL_box_width = fiveL_product["width"] if seg.way_5L.orientation == "normal" else fiveL_product["length"]
-                    for row in range(rows_5L):
-                        for col in range(seg.way_5L.cols):
-                            ax.add_patch(Rectangle((current_x + row * fiveL_box_length, col * fiveL_box_width),
-                                                   fiveL_box_length, fiveL_box_width,
-                                                   edgecolor='black', facecolor=COLORS["5L"], alpha=0.8))
+
+                    per_layer_5L = rows_5L * seg.way_5L.cols
+                    full_layers_5L = seg.qty_5L // per_layer_5L
+                    remainder_5L = seg.qty_5L - full_layers_5L * per_layer_5L
+                    tail_full_rows_5L = remainder_5L // seg.way_5L.cols
+                    tail_last_cols_5L = remainder_5L - tail_full_rows_5L * seg.way_5L.cols
+
+                    relative_layer = layer_idx - 2
+                    if relative_layer < full_layers_5L:
+                        for row in range(rows_5L):
+                            for col in range(seg.way_5L.cols):
+                                ax.add_patch(Rectangle((current_x + row * fiveL_box_length, col * fiveL_box_width),
+                                                       fiveL_box_length, fiveL_box_width,
+                                                       edgecolor='black', facecolor=COLORS["5L"], alpha=0.8))
+                    elif relative_layer == full_layers_5L and remainder_5L > 0:
+                        bump_length_5L = (tail_full_rows_5L + (1 if tail_last_cols_5L > 0 else 0)) * fiveL_box_length
+
+                        # 计算尾层子块 x 起点
+                        x_full_start, x_partial_start = bump_subblock_x_starts(
+                            placement, current_x, seg.seg_length, bump_length_5L,
+                            fiveL_box_length, tail_full_rows_5L, tail_last_cols_5L
+                        )
+
+                        for row in range(tail_full_rows_5L):
+                            for col in range(seg.way_5L.cols):
+                                ax.add_patch(Rectangle((x_full_start + row * fiveL_box_length, col * fiveL_box_width),
+                                                       fiveL_box_length, fiveL_box_width,
+                                                       edgecolor='black', facecolor=COLORS["5L"], alpha=0.8))
+                        if tail_last_cols_5L > 0:
+                            for col in range(tail_last_cols_5L):
+                                ax.add_patch(Rectangle((x_partial_start, col * fiveL_box_width),
+                                                       fiveL_box_length, fiveL_box_width,
+                                                       edgecolor='black', facecolor=COLORS["5L"], alpha=0.6, linestyle='--'))
 
             current_x += seg.seg_length
 
@@ -249,8 +514,17 @@ def render_top_view(result: PackingResult, container: str):
     return fig
 
 
-def render_3d_view(result: PackingResult, container: str):
-    """3D视图"""
+def render_3d_view(result: PackingResult, container: str, placements=None):
+    """3D视图
+
+    Args:
+        result: 装箱结果
+        container: 柜型名称
+        placements: 尾层位置列表，["front", "back", "none"]，长度与 segments 相同
+    """
+    if placements is None:
+        placements = choose_bump_placements(result.segments)
+
     container_spec = CONTAINERS[container]
     fig = go.Figure()
 
@@ -326,6 +600,8 @@ def render_3d_view(result: PackingResult, container: str):
     x_cursor = 0
 
     for i, seg in enumerate(result.segments, 1):
+        placement = placements[i - 1] if i <= len(placements) else "none"
+
         if seg.type == "pure":
             # Pure段：拆分满层、尾层满行、尾层零散箱
             product = PRODUCTS[seg.ptype]
@@ -352,20 +628,27 @@ def render_3d_view(result: PackingResult, container: str):
             # ② 尾层满行
             if remainder > 0:
                 z_tail = full_layers * layer_height
+                bump_length = (tail_full_rows + (1 if tail_last_cols > 0 else 0)) * box_length
+
+                # 计算尾层子块 x 起点
+                x_full_start, x_partial_start = bump_subblock_x_starts(
+                    placement, x_cursor, seg.seg_length, bump_length,
+                    box_length, tail_full_rows, tail_last_cols
+                )
+
                 if tail_full_rows > 0:
                     dx_tf = tail_full_rows * box_length
                     add_box(
-                        x_cursor, 0, z_tail, dx_tf, dy, layer_height,
+                        x_full_start, 0, z_tail, dx_tf, dy, layer_height,
                         color,
                         f"{i} 尾层满行 · {tail_full_rows} 排 × {seg.cols} 列"
                     )
 
                 # ③ 尾层零散箱（低透明度）
                 if tail_last_cols > 0:
-                    x_partial = x_cursor + tail_full_rows * box_length
                     dy_partial = tail_last_cols * box_width_along_W
                     add_box(
-                        x_partial, 0, z_tail, box_length, dy_partial, layer_height,
+                        x_partial_start, 0, z_tail, box_length, dy_partial, layer_height,
                         color,
                         f"{i} 尾层零散 · {tail_last_cols}/{seg.cols} 箱",
                         opacity=0.4
@@ -410,20 +693,27 @@ def render_3d_view(result: PackingResult, container: str):
             # ② 5L 尾层满行
             if remainder_5L > 0:
                 z_tail_5L = base_dz + full_layers_5L * fiveL_h
+                bump_length_5L = (tail_full_rows_5L + (1 if tail_last_cols_5L > 0 else 0)) * fiveL_box_length
+
+                # 计算尾层子块 x 起点
+                x_full_start, x_partial_start = bump_subblock_x_starts(
+                    placement, x_cursor, seg.seg_length, bump_length_5L,
+                    fiveL_box_length, tail_full_rows_5L, tail_last_cols_5L
+                )
+
                 if tail_full_rows_5L > 0:
                     dx_tf_5L = tail_full_rows_5L * fiveL_box_length
                     add_box(
-                        x_cursor, 0, z_tail_5L, dx_tf_5L, fiveL_dy, fiveL_h,
+                        x_full_start, 0, z_tail_5L, dx_tf_5L, fiveL_dy, fiveL_h,
                         COLORS["5L"],
                         f"{i}顶 · 5L 尾层满行 · {tail_full_rows_5L} 排 × {seg.way_5L.cols} 列"
                     )
 
                 # ③ 5L 尾层零散箱（低透明度）
                 if tail_last_cols_5L > 0:
-                    x_partial_5L = x_cursor + tail_full_rows_5L * fiveL_box_length
                     dy_partial_5L = tail_last_cols_5L * fiveL_box_width_along_W
                     add_box(
-                        x_partial_5L, 0, z_tail_5L, fiveL_box_length, dy_partial_5L, fiveL_h,
+                        x_partial_start, 0, z_tail_5L, fiveL_box_length, dy_partial_5L, fiveL_h,
                         COLORS["5L"],
                         f"{i}顶 · 5L 尾层零散 · {tail_last_cols_5L}/{seg.way_5L.cols} 箱",
                         opacity=0.4
