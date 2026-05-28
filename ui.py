@@ -15,8 +15,8 @@ def render_header() -> None:
         page_icon="📦",
         layout="wide"
     )
-    st.title("🚚 万益特混箱装柜")
-    st.caption("多产品混装拼柜方案优化 · 单订单一柜")
+    st.title("🚚 万益特集装箱装柜算法")
+    st.caption("多产品混装拼柜方案优化")
 
 
 def render_sidebar() -> tuple[str, dict[str, int], str]:
@@ -138,9 +138,10 @@ def render_summary(result) -> None:
         )
 
     with col4:
+        space_utilization = result.get_space_utilization()
         st.metric(
-            "综合评分",
-            f"{result.score:.4f}"
+            "空间利用率",
+            f"{space_utilization * 100:.1f}%"
         )
 
 

@@ -377,7 +377,7 @@ def render_side_view(result: PackingResult, container: str, placements=None):
     ax.set_ylim(0, container_H + 10)
     ax.set_xlabel("柜长 (cm)", fontproperties=font_prop)
     ax.set_ylabel("柜高 (cm)", fontproperties=font_prop)
-    ax.set_title(f"侧视图 - 利用率: {result.utilization:.1%}, 高差: {result.height_variance:.1f}cm",
+    ax.set_title(f"侧视图 - 长度利用率: {result.utilization:.1%}, 高差: {result.height_variance:.1f}cm",
                  fontproperties=font_prop)
     ax.grid(True, alpha=0.3)
     plt.tight_layout()

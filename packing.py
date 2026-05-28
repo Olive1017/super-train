@@ -78,6 +78,37 @@ class PackingResult:
                     total += seg.qty_base
         return total
 
+    def get_space_utilization(self) -> float:
+        """计算空间利用率：所有箱子的总体积 / 柜子的总体积"""
+        # 获取柜子规格
+        from config import CONTAINERS
+        container = CONTAINERS[self.container]
+
+        # 计算柜子总体积（cm³）
+        container_volume = container["length"] * container["width"] * container["height"]
+
+        # 计算所有箱子的总体积
+        total_box_volume = 0.0
+        for seg in self.segments:
+            if seg.type == "pure":
+                # 纯段：只有一个产品类型
+                product = PRODUCTS[seg.ptype]
+                box_volume = product["length"] * product["width"] * product["height"]
+                total_box_volume += seg.qty * box_volume
+            elif seg.type == "shared":
+                # 共享段：包含 5L 和 base 两种产品
+                product_5L = PRODUCTS["5L"]
+                product_base = PRODUCTS[seg.base_ptype]
+
+                box_volume_5L = product_5L["length"] * product_5L["width"] * product_5L["height"]
+                box_volume_base = product_base["length"] * product_base["width"] * product_base["height"]
+
+                total_box_volume += seg.qty_5L * box_volume_5L
+                total_box_volume += seg.qty_base * box_volume_base
+
+        # 返回利用率（小数）
+        return total_box_volume / container_volume
+
 
 def generate_ways(ptype: str, container: Dict) -> List[Way]:
     """
