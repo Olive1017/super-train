@@ -360,9 +360,6 @@ def render_side_view(result: PackingResult, container: str, placements=None):
         if container_H - seg.total_height > 5:
             ax.axhline(y=seg.total_height, xmin=(current_x / container_L), xmax=((current_x + seg.seg_length) / container_L),
                       color='#ccc', linestyle='--', alpha=0.5)
-            ax.text(current_x + seg.seg_length / 2, seg.total_height + 1,
-                    f"剩余 {container_H - seg.total_height:.0f} cm",
-                    ha='center', va='bottom', fontsize=8, color='#999')
 
         prev_seg_height = seg.total_height
         current_x += seg.seg_length
@@ -370,14 +367,14 @@ def render_side_view(result: PackingResult, container: str, placements=None):
     # 柜门方向标识
     ax.arrow(container_L + 2, container_H / 2, 8, 0,
              head_width=3, head_length=5, fc='#666', ec='#666', lw=1.5)
-    ax.text(container_L + 12, container_H / 2, '柜门',
-            ha='left', va='center', fontsize=10, color='#666')
+    ax.text(container_L + 12, container_H / 2, '🚪柜门',
+            ha='left', va='center', fontsize=10, color='#666', fontproperties=font_prop)
 
     ax.set_xlim(0, container_L)
     ax.set_ylim(0, container_H + 10)
     ax.set_xlabel("柜长 (cm)", fontproperties=font_prop)
     ax.set_ylabel("柜高 (cm)", fontproperties=font_prop)
-    ax.set_title(f"侧视图 - 长度利用率: {result.utilization:.1%}, 高差: {result.height_variance:.1f}cm",
+    ax.set_title(f"侧视图 - 长度利用率: {result.utilization:.1%}, 高度差: {result.height_variance:.1f}cm",
                  fontproperties=font_prop)
     ax.grid(True, alpha=0.3)
     plt.tight_layout()
@@ -760,7 +757,7 @@ def render_3d_view(result: PackingResult, container: str, placements=None):
         margin=dict(l=0, r=0, t=50, b=0),
         showlegend=True,
         title=dict(
-            text=f"3D 视图 - 利用率: {result.utilization:.1%}, 高差: {result.height_variance:.1f}cm",
+            text=f"3D 视图 - 长度利用率: {result.utilization:.1%}, 高度差: {result.height_variance:.1f}cm",
             x=0.5, xanchor="center",
             font=dict(size=14)
         ),
