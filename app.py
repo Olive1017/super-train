@@ -36,8 +36,7 @@ def main():
     # 渲染侧边栏
     container_name, orders, error_msg = render_sidebar()
 
-    # 🚚 标题 + 副标题
-    st.markdown("---")
+
 
     # 检查是否需要计算
     if st.session_state["should_calculate"] and not error_msg:

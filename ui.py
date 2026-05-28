@@ -30,13 +30,13 @@ def render_sidebar() -> tuple[str, dict[str, int], str]:
     # 📦 参数设置
     st.sidebar.header("📦 参数设置")
     container_name = st.sidebar.selectbox(
-        "柜型",
+        "选择柜型",
         list(CONTAINERS.keys()),
         index=2  # 默认 40尺海运
     )
 
     # 📋 订单输入
-    st.sidebar.subheader("📋 订单输入")
+    st.sidebar.subheader("📋 输入产品数量")
 
     # 使用 session_state 保存输入值
     if "orders_input" not in st.session_state:
@@ -119,25 +119,25 @@ def render_summary(result) -> None:
     """渲染顶部 4 个指标卡片"""
     col1, col2, col3, col4 = st.columns(4)
 
-    with col1:
+    with col2:
         st.metric(
             "长度利用率",
             f"{result.utilization * 100:.1f}%"
         )
 
-    with col2:
+    with col3:
         st.metric(
             "段数",
             len(result.segments)
         )
 
-    with col3:
+    with col4:
         st.metric(
             "高度差",
             f"{result.height_variance:.1f} cm"
         )
 
-    with col4:
+    with col1:
         space_utilization = result.get_space_utilization()
         st.metric(
             "空间利用率",
