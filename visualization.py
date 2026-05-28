@@ -374,7 +374,7 @@ def render_side_view(result: PackingResult, container: str, placements=None):
     ax.set_ylim(0, container_H + 10)
     ax.set_xlabel("柜长 (cm)", fontproperties=font_prop)
     ax.set_ylabel("柜高 (cm)", fontproperties=font_prop)
-    ax.set_title(f"侧视图 - 长度利用率: {result.utilization:.1%}, 高度差: {result.height_variance:.1f}cm",
+    ax.set_title(f"侧视图 - 长度利用率: {result.utilization:.1%}, 最大高度差: {result.height_variance:.1f}cm",
                  fontproperties=font_prop)
     ax.grid(True, alpha=0.3)
     plt.tight_layout()
@@ -757,7 +757,7 @@ def render_3d_view(result: PackingResult, container: str, placements=None):
         margin=dict(l=0, r=0, t=50, b=0),
         showlegend=True,
         title=dict(
-            text=f"3D 视图 - 长度利用率: {result.utilization:.1%}, 高度差: {result.height_variance:.1f}cm",
+            text=f"3D 视图 - 长度利用率: {result.utilization:.1%}, 最大高度差: {result.height_variance:.1f}cm",
             x=0.5, xanchor="center",
             font=dict(size=14)
         ),

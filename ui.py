@@ -133,7 +133,7 @@ def render_summary(result) -> None:
 
     with col4:
         st.metric(
-            "高度差",
+            "最大高度差",
             f"{result.height_variance:.1f} cm"
         )
 
