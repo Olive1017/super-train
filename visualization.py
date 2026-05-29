@@ -261,6 +261,11 @@ def render_side_view(result: PackingResult, container: str, placements=None):
                 for row_idx in range(seg.rows):
                     ax.add_patch(Rectangle((current_x + row_idx * box_length, y_pos), box_length, layer_height,
                                            edgecolor='black', facecolor=color, alpha=0.8))
+                    # 添加层数标注在最左侧箱子
+                    if row_idx == 0:
+                        ax.text(current_x + box_length / 2, y_pos + layer_height / 2,
+                                f"{layer_idx + 1}",
+                                ha='center', va='center', fontsize=8, color='black', fontweight='bold')
 
 
             # 尾层：逐 row 绘制，空 row 留白
@@ -278,6 +283,11 @@ def render_side_view(result: PackingResult, container: str, placements=None):
                 for row_idx in range(tail_full_rows):
                     ax.add_patch(Rectangle((x_full_start + row_idx * box_length, y_pos), box_length, layer_height,
                                            edgecolor='black', facecolor=color, alpha=0.8))
+                    # 添加层数标注在最左侧箱子
+                    if row_idx == 0:
+                        ax.text(x_full_start + box_length / 2, y_pos + layer_height / 2,
+                                f"{full_layers + 1}",
+                                ha='center', va='center', fontsize=8, color='black', fontweight='bold')
                 # 不满排（浅色）
                 if tail_last_cols > 0:
                     ax.add_patch(Rectangle((x_partial_start, y_pos), box_length, layer_height,
@@ -300,6 +310,11 @@ def render_side_view(result: PackingResult, container: str, placements=None):
                 for row_idx in range(rows_base):
                     ax.add_patch(Rectangle((current_x + row_idx * base_box_length, y_pos), base_box_length, seg.way_base.box_height,
                                            edgecolor='black', facecolor=COLORS[seg.base_ptype], alpha=0.8, hatch='//'))
+                    # 添加层数标注在最左侧箱子
+                    if row_idx == 0:
+                        ax.text(current_x + base_box_length / 2, y_pos + seg.way_base.box_height / 2,
+                                f"底{layer_idx + 1}",
+                                ha='center', va='center', fontsize=8, color='black', fontweight='bold')
 
             # 5L 层：逐 row 绘制
             fiveL_product = PRODUCTS["5L"]
@@ -316,6 +331,11 @@ def render_side_view(result: PackingResult, container: str, placements=None):
                 for row_idx in range(rows_5L):
                     ax.add_patch(Rectangle((current_x + row_idx * fiveL_box_length, y_pos), fiveL_box_length, seg.way_5L.box_height,
                                            edgecolor='black', facecolor=COLORS["5L"], alpha=0.8))
+                    # 添加层数标注在最左侧箱子
+                    if row_idx == 0:
+                        ax.text(current_x + fiveL_box_length / 2, y_pos + seg.way_5L.box_height / 2,
+                                f"5L-{layer_idx + 1}",
+                                ha='center', va='center', fontsize=8, color='black', fontweight='bold')
 
 
             # 5L 尾层
@@ -333,6 +353,11 @@ def render_side_view(result: PackingResult, container: str, placements=None):
                 for row_idx in range(tail_full_rows_5L):
                     ax.add_patch(Rectangle((x_full_start + row_idx * fiveL_box_length, y_pos), fiveL_box_length, seg.way_5L.box_height,
                                            edgecolor='black', facecolor=COLORS["5L"], alpha=0.8))
+                    # 添加层数标注在最左侧箱子
+                    if row_idx == 0:
+                        ax.text(x_full_start + fiveL_box_length / 2, y_pos + seg.way_5L.box_height / 2,
+                                f"5L-{full_layers_5L + 1}",
+                                ha='center', va='center', fontsize=8, color='black', fontweight='bold')
                 # 不满排（浅色）
                 if tail_last_cols_5L > 0:
                     ax.add_patch(Rectangle((x_partial_start, y_pos), fiveL_box_length, seg.way_5L.box_height,
