@@ -13,6 +13,19 @@ from config import CONTAINERS, PRODUCTS
 COLORS = {"5L": "#4A90E2", "2L": "#7ED321", "艾考": "#F5A623"}
 FONT_PATH = "fonts/SIMHEI.ttf"
 
+# 正向/竖装：长沿柜长、宽沿柜宽（宽面朝柜门），须与 packing.py generate_ways 一致
+NORMAL_ORIENTATION = "打竖装"
+
+
+def dim_along_L(product, orientation):
+    """箱子沿柜长方向的尺寸"""
+    return product["length"] if orientation == NORMAL_ORIENTATION else product["width"]
+
+
+def dim_along_W(product, orientation):
+    """箱子沿柜宽方向的尺寸"""
+    return product["width"] if orientation == NORMAL_ORIENTATION else product["length"]
+
 
 def bump_subblock_x_starts(placement, x_seg_start, seg_length, bump_length, box_length, tail_full_rows, tail_last_cols):
     """
@@ -76,12 +89,8 @@ def get_segment_profile(seg):
         layer_height = seg.total_height / seg.actual_layers
 
         product = PRODUCTS[seg.ptype]
-        if seg.orientation == "打竖装":
-            box_length = product["length"]
-            box_width_along_W = product["width"]
-        else:
-            box_length = product["width"]
-            box_width_along_W = product["length"]
+        box_length = dim_along_L(product, seg.orientation)
+        box_width_along_W = dim_along_W(product, seg.orientation)
 
         if remainder > 0:
             bump_length = (tail_full_rows + (1 if tail_last_cols > 0 else 0)) * box_length
@@ -117,12 +126,8 @@ def get_segment_profile(seg):
         tail_full_rows_5L = remainder_5L // seg.way_5L.cols
         tail_last_cols_5L = remainder_5L - tail_full_rows_5L * seg.way_5L.cols
 
-        if seg.way_5L.orientation == "打竖装":
-            box_length = fiveL_product["length"]
-            box_width_along_W = fiveL_product["width"]
-        else:
-            box_length = fiveL_product["width"]
-            box_width_along_W = fiveL_product["length"]
+        box_length = dim_along_L(fiveL_product, seg.way_5L.orientation)
+        box_width_along_W = dim_along_W(fiveL_product, seg.way_5L.orientation)
 
         if remainder_5L > 0:
             bump_length = (tail_full_rows_5L + (1 if tail_last_cols_5L > 0 else 0)) * box_length
@@ -155,7 +160,7 @@ def get_segment_profile(seg):
         "box_length": 0,
         "box_width_along_W": 0,
         "color": "gray",
-        "orientation": "打竖装",
+        "orientation": NORMAL_ORIENTATION,
         "cols": 0,
     }
 
@@ -250,10 +255,7 @@ def render_side_view(result: PackingResult, container: str, placements=None):
 
             # 计算箱子的长度（沿柜长方向）
             product = PRODUCTS[seg.ptype]
-            if seg.orientation == "normal":
-                box_length = product["length"]
-            else:
-                box_length = product["width"]
+            box_length = dim_along_L(product, seg.orientation)
 
             # 满层：逐 row 绘制
             for layer_idx in range(full_layers):
@@ -304,7 +306,7 @@ def render_side_view(result: PackingResult, container: str, placements=None):
 
             # 底 2 层 base：逐 row 绘制（满层，无尾）
             base_product = PRODUCTS[seg.base_ptype]
-            base_box_length = base_product["length"] if seg.way_base.orientation == "normal" else base_product["width"]
+            base_box_length = dim_along_L(base_product, seg.way_base.orientation)
             for layer_idx in range(2):
                 y_pos = layer_idx * seg.way_base.box_height
                 for row_idx in range(rows_base):
@@ -318,7 +320,7 @@ def render_side_view(result: PackingResult, container: str, placements=None):
 
             # 5L 层：逐 row 绘制
             fiveL_product = PRODUCTS["5L"]
-            fiveL_box_length = fiveL_product["length"] if seg.way_5L.orientation == "normal" else fiveL_product["width"]
+            fiveL_box_length = dim_along_L(fiveL_product, seg.way_5L.orientation)
             per_layer_5L = rows_5L * seg.way_5L.cols
             full_layers_5L = seg.qty_5L // per_layer_5L
             remainder_5L = seg.qty_5L - full_layers_5L * per_layer_5L
@@ -441,8 +443,8 @@ def render_top_view(result: PackingResult, container: str, placements=None):
 
             if seg.type == "pure":
                 product = PRODUCTS[seg.ptype]
-                box_length = product["length"] if seg.orientation == "normal" else product["width"]
-                box_width = product["width"] if seg.orientation == "normal" else product["length"]
+                box_length = dim_along_L(product, seg.orientation)
+                box_width = dim_along_W(product, seg.orientation)
                 per_layer = seg.per_layer
                 full_layers = seg.qty // per_layer
                 remainder = seg.qty - full_layers * per_layer
@@ -480,16 +482,16 @@ def render_top_view(result: PackingResult, container: str, placements=None):
                 rows_5L = seg.rows_5L
 
                 if layer_idx < 2:
-                    base_box_length = base_product["length"] if seg.way_base.orientation == "normal" else base_product["width"]
-                    base_box_width = base_product["width"] if seg.way_base.orientation == "normal" else base_product["length"]
+                    base_box_length = dim_along_L(base_product, seg.way_base.orientation)
+                    base_box_width = dim_along_W(base_product, seg.way_base.orientation)
                     for row in range(rows_base):
                         for col in range(seg.way_base.cols):
                             ax.add_patch(Rectangle((current_x + row * base_box_length, col * base_box_width),
                                                    base_box_length, base_box_width,
                                                    edgecolor='black', facecolor=COLORS[seg.base_ptype], alpha=0.8, hatch='//'))
                 elif 2 <= layer_idx < 2 + seg.layers_5L:
-                    fiveL_box_length = fiveL_product["length"] if seg.way_5L.orientation == "normal" else fiveL_product["width"]
-                    fiveL_box_width = fiveL_product["width"] if seg.way_5L.orientation == "normal" else fiveL_product["length"]
+                    fiveL_box_length = dim_along_L(fiveL_product, seg.way_5L.orientation)
+                    fiveL_box_width = dim_along_W(fiveL_product, seg.way_5L.orientation)
 
                     per_layer_5L = rows_5L * seg.way_5L.cols
                     full_layers_5L = seg.qty_5L // per_layer_5L
@@ -602,11 +604,6 @@ def render_3d_view(result: PackingResult, container: str, placements=None):
         showlegend=False, hoverinfo="skip",
     ))
 
-    # 辅助函数：计算箱子在宽度方向的尺寸
-    def get_box_width_along_W(ptype: str, orientation: str) -> float:
-        product = PRODUCTS[ptype]
-        return product["width"] if orientation == "normal" else product["length"]
-
     # 辅助函数：绘制长方体
     def add_box(x: float, y: float, z: float, dx: float, dy: float, dz: float, color: str, hovertext: str, opacity=0.85):
         fig.add_trace(go.Mesh3d(
@@ -630,8 +627,8 @@ def render_3d_view(result: PackingResult, container: str, placements=None):
         if seg.type == "pure":
             # Pure段：拆分满层、尾层满行、尾层零散箱
             product = PRODUCTS[seg.ptype]
-            box_length = product["length"] if seg.orientation == "normal" else product["width"]
-            box_width_along_W = get_box_width_along_W(seg.ptype, seg.orientation)
+            box_length = dim_along_L(product, seg.orientation)
+            box_width_along_W = dim_along_W(product, seg.orientation)
             dy = seg.cols * box_width_along_W
             layer_height = seg.total_height / seg.actual_layers
             color = COLORS[seg.ptype]
@@ -683,7 +680,7 @@ def render_3d_view(result: PackingResult, container: str, placements=None):
             # Shared段：base 保持单块，5L 拆分顶层
             # —— Base（2 层始终满，保持单块）——
             base_product = PRODUCTS[seg.base_ptype]
-            base_box_width_along_W = get_box_width_along_W(seg.base_ptype, seg.way_base.orientation)
+            base_box_width_along_W = dim_along_W(base_product, seg.way_base.orientation)
             base_dy = seg.way_base.cols * base_box_width_along_W
             base_dz = 2 * seg.way_base.box_height
             add_box(
@@ -694,8 +691,8 @@ def render_3d_view(result: PackingResult, container: str, placements=None):
 
             # —— 5L 部分（拆分顶层）——
             fiveL_product = PRODUCTS["5L"]
-            fiveL_box_length = fiveL_product["length"] if seg.way_5L.orientation == "normal" else fiveL_product["width"]
-            fiveL_box_width_along_W = get_box_width_along_W("5L", seg.way_5L.orientation)
+            fiveL_box_length = dim_along_L(fiveL_product, seg.way_5L.orientation)
+            fiveL_box_width_along_W = dim_along_W(fiveL_product, seg.way_5L.orientation)
             fiveL_dy = seg.way_5L.cols * fiveL_box_width_along_W
             fiveL_h = seg.way_5L.box_height
             rows_5L = seg.rows_5L
@@ -796,53 +793,61 @@ def render_3d_view(result: PackingResult, container: str, placements=None):
 
 
 def generate_worker_guide(result: PackingResult, container: str) -> str:
-    """生成操作指南"""
+    """生成操作指南（从里到外、按连续相同层数的排分组）"""
     container_spec = CONTAINERS[container]
     lines = [
-        "=== 装柜操作指南 ===",
+        "==== 装柜操作指南 ====",
         f"柜型：{container}（{container_spec['length']}×{container_spec['width']}×{container_spec['height']} cm）",
-        f"长度利用率：{result.utilization * 100:.1f}%",
-        f"高度差：{result.height_variance:.1f} cm",
-        f"总段数：{len(result.segments)}",
-        ""
+        f"长度利用率：{result.utilization * 100:.1f}%    最大高度差：{result.height_variance:.1f} cm",
+        "装货方向：从柜子最里面（柜壁）开始，一排一排往柜门方向装；高的排靠柜壁。",
+        "",
     ]
 
     for i, seg in enumerate(result.segments, 1):
-        lines.append(f"【第 {i} 段】(段长 {seg.seg_length:.1f} cm, 段高 {seg.total_height:.1f} cm)")
-
         if seg.type == "pure":
             per_layer = seg.per_layer
             full_layers = seg.qty // per_layer
             remainder = seg.qty - full_layers * per_layer
             tail_full_rows = remainder // seg.cols
             tail_last_cols = remainder - tail_full_rows * seg.cols
-            orientation_desc = "箱子长沿柜长" if seg.orientation == "normal" else "箱子长沿柜宽（旋转）"
+            normal_rows = seg.rows - tail_full_rows - (1 if tail_last_cols > 0 else 0)
+            facing = "宽面朝柜门（正向）" if seg.orientation == "normal" else "长面朝柜门（旋转）"
 
-            lines.append(f"  品类：{seg.ptype}")
-            lines.append(f"  朝向：{orientation_desc}")
-            lines.append(f"  底排：{seg.rows} 排 × {seg.cols} 列")
-            lines.append(f"  叠 {full_layers} 满层（{full_layers * per_layer} 箱）")
-
-            if remainder > 0:
-                tail_desc = f"  顶层尾排：{tail_full_rows} 整排"
-                if tail_last_cols > 0:
-                    tail_desc += f" + {tail_last_cols} 个零散，靠后/靠边"
-                lines.append(tail_desc)
+            lines.append(f"── 第 {i} 区：{seg.ptype}（{facing}）──")
+            lines.append(f"  每排横向放 {seg.cols} 列，从最里往柜门方向：")
+            step = 1
+            if tail_full_rows > 0:  # 高排（顶上多一满层）放最里
+                lines.append(f"  {step}）最里 {tail_full_rows} 排：每排叠 {full_layers + 1} 层"
+                             f"（{tail_full_rows * seg.cols * (full_layers + 1)} 箱）")
+                step += 1
+            if normal_rows > 0:
+                lines.append(f"  {step}）接着 {normal_rows} 排：每排叠 {full_layers} 层"
+                             f"（{normal_rows * seg.cols * full_layers} 箱）")
+                step += 1
+            if tail_last_cols > 0:  # 不足一层的零散箱
+                lines.append(f"  {step}）最后 1 排：叠 {full_layers} 层后，顶上再放 {tail_last_cols} 箱"
+                             f"（不足一层，靠柜壁集中码放）")
+                step += 1
+            lines.append(f"  小计：{seg.rows} 排，{seg.qty} 箱")
+            lines.append("")
 
         elif seg.type == "shared":
-            lines.append("  ⚠ 共享段：先铺底再叠 5L")
-            rows_base = seg.rows_base
-            rows_5L = seg.rows_5L
-            lines.append(f"  ① 底层 {seg.base_ptype}：2 层，{rows_base} 排 × {seg.way_base.cols} 列，共 {seg.qty_base} 箱")
-            lines.append(f"  ② 上层 5L：{seg.layers_5L} 层，{rows_5L} 排 × {seg.way_5L.cols} 列，共 {seg.qty_5L} 箱")
-
-        lines.append("")
+            facing_base = "宽面朝柜门（正向）" if seg.way_base.orientation == "normal" else "长面朝柜门（旋转）"
+            facing_5L = "宽面朝柜门（正向）" if seg.way_5L.orientation == "normal" else "长面朝柜门（旋转）"
+            lines.append(f"── 第 {i} 区：{seg.base_ptype} + 5L 混装 ──")
+            lines.append(f"  ① 先铺底垫 {seg.base_ptype}（{facing_base}）："
+                         f"{seg.rows_base} 排 × {seg.way_base.cols} 列，叠 2 层，共 {seg.qty_base} 箱")
+            lines.append(f"  ② 再在底垫上叠 5L（{facing_5L}）："
+                         f"{seg.rows_5L} 排 × {seg.way_5L.cols} 列，叠 {seg.layers_5L} 层，共 {seg.qty_5L} 箱")
+            lines.append(f"  小计：本区 {seg.qty_base + seg.qty_5L} 箱")
+            lines.append("")
 
     lines.extend([
-        "=== 注意 ===",
-        "- 严禁斜放、不可超层数",
-        "- 尾排零散箱靠柜门方向集中放置",
-        "- 共享段：先铺完底层 base，再叠 5L"
+        "==== 注意 ====",
+        "- 不斜放、不超层数、不改变箱子竖直高度",
+        "- 高的排靠柜壁（最里），矮的排靠柜门，避免前后高低错落",
+        "- 不足一层的零散箱集中靠柜壁码放",
+        "- 混装区：先铺满底垫，再往上叠 5L",
     ])
 
     return "\n".join(lines)
