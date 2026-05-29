@@ -76,7 +76,7 @@ def get_segment_profile(seg):
         layer_height = seg.total_height / seg.actual_layers
 
         product = PRODUCTS[seg.ptype]
-        if seg.orientation == "normal":
+        if seg.orientation == "打竖装":
             box_length = product["length"]
             box_width_along_W = product["width"]
         else:
@@ -117,7 +117,7 @@ def get_segment_profile(seg):
         tail_full_rows_5L = remainder_5L // seg.way_5L.cols
         tail_last_cols_5L = remainder_5L - tail_full_rows_5L * seg.way_5L.cols
 
-        if seg.way_5L.orientation == "normal":
+        if seg.way_5L.orientation == "打竖装":
             box_length = fiveL_product["length"]
             box_width_along_W = fiveL_product["width"]
         else:
@@ -155,7 +155,7 @@ def get_segment_profile(seg):
         "box_length": 0,
         "box_width_along_W": 0,
         "color": "gray",
-        "orientation": "normal",
+        "orientation": "打竖装",
         "cols": 0,
     }
 
@@ -343,9 +343,10 @@ def render_side_view(result: PackingResult, container: str, placements=None):
                 y_pos = base_height + full_layers_5L * seg.way_5L.box_height
                 bump_length_5L = (tail_full_rows_5L + (1 if tail_last_cols_5L > 0 else 0)) * fiveL_box_length
 
-                # 计算尾层子块 x 起点
+                # 计算尾层子块 x 起点（使用 5L 本体长度）
+                length_5L = rows_5L * fiveL_box_length
                 x_full_start, x_partial_start = bump_subblock_x_starts(
-                    placement, current_x, seg.seg_length, bump_length_5L,
+                    placement, current_x, length_5L, bump_length_5L,
                     fiveL_box_length, tail_full_rows_5L, tail_last_cols_5L
                 )
 
@@ -397,6 +398,7 @@ def render_side_view(result: PackingResult, container: str, placements=None):
 
     ax.set_xlim(0, container_L)
     ax.set_ylim(0, container_H + 10)
+    ax.set_aspect('equal', adjustable='box')
     ax.set_xlabel("柜长 (cm)", fontproperties=font_prop)
     ax.set_ylabel("柜高 (cm)", fontproperties=font_prop)
     ax.set_title(f"侧视图 - 长度利用率: {result.utilization:.1%}, 最大高度差: {result.height_variance:.1f}cm",
@@ -505,9 +507,10 @@ def render_top_view(result: PackingResult, container: str, placements=None):
                     elif relative_layer == full_layers_5L and remainder_5L > 0:
                         bump_length_5L = (tail_full_rows_5L + (1 if tail_last_cols_5L > 0 else 0)) * fiveL_box_length
 
-                        # 计算尾层子块 x 起点
+                        # 计算尾层子块 x 起点（使用 5L 本体长度）
+                        length_5L = rows_5L * fiveL_box_length
                         x_full_start, x_partial_start = bump_subblock_x_starts(
-                            placement, current_x, seg.seg_length, bump_length_5L,
+                            placement, current_x, length_5L, bump_length_5L,
                             fiveL_box_length, tail_full_rows_5L, tail_last_cols_5L
                         )
 
@@ -526,6 +529,7 @@ def render_top_view(result: PackingResult, container: str, placements=None):
 
         ax.set_xlim(0, container_L)
         ax.set_ylim(0, container_W)
+        ax.set_aspect('equal', adjustable='box')
         ax.set_xlabel("柜长 (cm)", fontproperties=font_prop)
         ax.set_ylabel("柜宽 (cm)", fontproperties=font_prop)
         ax.set_title(f"第 {layer_idx + 1} 层", fontproperties=font_prop)
@@ -716,9 +720,10 @@ def render_3d_view(result: PackingResult, container: str, placements=None):
                 z_tail_5L = base_dz + full_layers_5L * fiveL_h
                 bump_length_5L = (tail_full_rows_5L + (1 if tail_last_cols_5L > 0 else 0)) * fiveL_box_length
 
-                # 计算尾层子块 x 起点
+                # 计算尾层子块 x 起点（使用 5L 本体长度）
+                length_5L = rows_5L * fiveL_box_length
                 x_full_start, x_partial_start = bump_subblock_x_starts(
-                    placement, x_cursor, seg.seg_length, bump_length_5L,
+                    placement, x_cursor, length_5L, bump_length_5L,
                     fiveL_box_length, tail_full_rows_5L, tail_last_cols_5L
                 )
 

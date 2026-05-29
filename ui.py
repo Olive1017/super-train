@@ -2,10 +2,43 @@
 UI 组件函数 - 无副作用，只返回用户输入
 """
 
+import io
+from datetime import datetime
 import math
+import matplotlib.pyplot as plt
+from matplotlib.backends.backend_pdf import PdfPages
 import streamlit as st
 import pandas as pd
 from config import PRODUCTS, CONTAINERS
+
+
+def build_pdf_bytes(result, container_name):
+    """
+    生成包含侧视图和俯视图的 PDF
+
+    Args:
+        result: PackingResult 装箱结果
+        container_name: 柜型名称
+
+    Returns:
+        bytes: PDF 文件的字节内容
+    """
+    from visualization import render_side_view, render_top_view
+
+    buf = io.BytesIO()
+    with PdfPages(buf) as pdf:
+        # 第1页：侧视图
+        fig_side = render_side_view(result, container_name)
+        pdf.savefig(fig_side, bbox_inches="tight")
+        plt.close(fig_side)
+
+        # 第2页：俯视图
+        fig_top = render_top_view(result, container_name)
+        pdf.savefig(fig_top, bbox_inches="tight")
+        plt.close(fig_top)
+
+    buf.seek(0)
+    return buf.getvalue()
 
 
 def render_header() -> None:
@@ -81,6 +114,31 @@ def render_sidebar() -> tuple[str, dict[str, int], str]:
         st.session_state["orders_input"] = {"5L": 0, "2L": 0, "艾考": 0}
         st.rerun()
 
+    st.sidebar.divider()
+
+    # 📥 下载 PDF 按钮
+    st.sidebar.subheader("📥 导出方案")
+    if st.session_state.get("result") is not None:
+        result = st.session_state["result"]
+        container_name = st.session_state.get("container_name", "")
+
+        if container_name:
+            # 生成 PDF 字节数据
+            pdf_bytes = build_pdf_bytes(result, container_name)
+
+            # 生成文件名：装柜方案_{container}_{今天日期YYYYMMDD}.pdf
+            today_str = datetime.now().strftime("%Y%m%d")
+            file_name = f"装柜方案_{container_name}_{today_str}.pdf"
+
+            st.sidebar.download_button(
+                label="📥 下载装柜方案 PDF",
+                data=pdf_bytes,
+                file_name=file_name,
+                mime="application/pdf",
+            )
+    else:
+        st.sidebar.info("💡 请先生成装柜方案")
+
     # 显示错误信息（如果有）
     if st.session_state["error_message"]:
         st.sidebar.error(st.session_state["error_message"])
@@ -155,7 +213,7 @@ def render_segment_table(result) -> None:
                 "段号": i,
                 "类型": "纯段",
                 "品类": seg.ptype,
-                "朝向": "旋转" if seg.orientation == "rotated" else "正向",
+                "朝向": "打横装" if seg.orientation == "打横装" else "打竖装",
                 "排×列×层": f"{seg.rows}×{seg.cols}×{seg.actual_layers}",
                 "箱数": seg.qty,
                 "段长(cm)": round(seg.seg_length, 1),
@@ -179,8 +237,8 @@ def render_segment_table(result) -> None:
     # 在第 177 行之前插入：
     st.caption(
         "💡 **朝向说明**："
-        "「正向」表示长沿柜长、宽沿柜宽；"
-        "「旋转」表示长沿柜宽、宽沿柜长"
+        "「打竖装」表示长沿柜长、宽沿柜宽；"
+        "「打横装」表示长沿柜宽、宽沿柜长"
     )
 
     st.dataframe(

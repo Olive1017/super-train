@@ -17,7 +17,7 @@ class Way:
     side_gap: float         # 宽度方向剩余空隙
     box_height: float       # 单箱高度
     max_layers: int         # 最大层数
-    orientation: str        # "normal" 或 "rotated"
+    orientation: str        # "打竖装" 或 "打横装"
     ptype: str              # 产品类型
 
     def __repr__(self):
@@ -125,11 +125,11 @@ def generate_ways(ptype: str, container: Dict) -> List[Way]:
     product = PRODUCTS[ptype]
     container_W = container["width"]
 
-    for orientation in ["normal", "rotated"]:
-        if orientation == "normal":
+    for orientation in ["打竖装", "打横装"]:
+        if orientation == "打竖装":
             along_W = product["width"]
             along_L = product["length"]
-        else:  # rotated
+        else:  # 打横装
             along_W = product["length"]
             along_L = product["width"]
 
